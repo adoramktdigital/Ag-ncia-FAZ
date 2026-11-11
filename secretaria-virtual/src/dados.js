@@ -132,7 +132,12 @@ export async function cadastrarContato({ nome, telefone, empresa = "", email = "
 
 export async function listarCobrancas() {
   const linhas = await lerTabela("Cobrancas");
-  return linhas.map((c) => ({ ...c, vencimento: normalizarData(c.vencimento), status: minusculo(c.status) || "pendente" }));
+  return linhas.map((c) => ({
+    ...c,
+    vencimento: normalizarData(c.vencimento),
+    ultimo_aviso: normalizarData(c.ultimo_aviso),
+    status: minusculo(c.status) || "pendente",
+  }));
 }
 
 export async function cobrancasEmAberto(clienteId) {

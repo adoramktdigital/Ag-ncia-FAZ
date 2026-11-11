@@ -32,6 +32,7 @@ test("régua de cobrança", () => {
   const etapas = lerEtapas("-3,0,1,3,7");
   assert.deepEqual(lerEtapas(""), []);
   assert.deepEqual(lerEtapas(" -3, 0 "), [-3, 0]);
+  assert.deepEqual(lerEtapas("-3 0 1"), [-3, 0, 1]);
   const base = { status: "pendente", vencimento: "2026-11-20", avisos_enviados: "", ultimo_aviso: "" };
   assert.equal(etapaDeHoje(base, etapas, "2026-11-16"), null);      // D-4: nada
   assert.equal(etapaDeHoje(base, etapas, "2026-11-17"), -3);        // D-3

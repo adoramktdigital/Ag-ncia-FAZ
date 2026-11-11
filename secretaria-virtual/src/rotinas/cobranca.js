@@ -80,7 +80,8 @@ export async function executarCobrancas({ agora = new Date() } = {}) {
     try {
       await enviarTemplate(telefone, template, IDIOMA_TEMPLATES, parametros);
       const enviadas = [...lerEtapas(cobranca.avisos_enviados), etapa];
-      await atualizarCobranca(cobranca, { avisos_enviados: enviadas.join(","), ultimo_aviso: dataHoje });
+      // Separado por espaço: em planilhas em português, "-3,0" viraria o número -3.
+      await atualizarCobranca(cobranca, { avisos_enviados: enviadas.join(" "), ultimo_aviso: dataHoje });
       await registrarConversa(telefone, cliente.nome, "saida", `[template ${template}] ${parametros.join(" | ")}`);
       resultado.enviadas++;
 

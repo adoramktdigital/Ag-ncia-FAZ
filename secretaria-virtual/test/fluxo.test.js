@@ -76,6 +76,7 @@ test("rotinas enviam cobrança D-3 e pedido de aprovação", async () => {
   assert.ok(nomes.includes("acompanhamento_aprovacao"));
   assert.ok(nomes.includes("cobranca_lembrete"));
   assert.equal(abas.Cobrancas[0].avisos_enviados, "-3");
+  assert.equal(abas.Cobrancas[0].ultimo_aviso, hoje());
   assert.equal(abas.Acompanhamentos[0].tentativas, 1);
 });
 
