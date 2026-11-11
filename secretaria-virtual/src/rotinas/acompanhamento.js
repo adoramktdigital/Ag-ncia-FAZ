@@ -1,5 +1,5 @@
 // Acompanhamento de clientes: pedidos de aprovação, avisos de entrega e retornos pendentes.
-import { listarAcompanhamentos, listarClientes, atualizarAcompanhamento, lerConfig, registrarConversa } from "../dados.js";
+import { listarAcompanhamentos, listarClientes, atualizarAcompanhamento, lerConfig, registrarConversa, nomeEmpresa, nomeParaSaudacao } from "../dados.js";
 import { enviarTemplate } from "../whatsapp.js";
 import { avisarEquipe, paraParametro } from "../avisos.js";
 import { TEMPLATES, IDIOMA_TEMPLATES } from "../templates.js";
@@ -39,14 +39,14 @@ export async function executarAcompanhamentos({ agora = new Date() } = {}) {
     if (tentativas >= maxTentativas) {
       await atualizarAcompanhamento(acomp, { status: "sem_resposta" });
       await avisarEquipe(
-        `${cliente.nome} não respondeu sobre "${acomp.descricao}" (${acomp.id}) depois de ${tentativas} lembretes. ` +
+        `${nomeEmpresa(cliente)} não respondeu sobre "${acomp.descricao}" (${acomp.id}) depois de ${tentativas} lembretes. ` +
         `Marquei como sem_resposta; vale um contato pessoal.`,
       );
       continue;
     }
 
     const template = templateDoTipo(acomp.tipo);
-    const primeiroNome = String(cliente.nome || "").split(" ")[0] || "tudo bem";
+    const primeiroNome = nomeParaSaudacao(cliente);
     const parametros = acomp.tipo === "retorno"
       ? [primeiroNome, paraParametro(acomp.descricao)]
       : [primeiroNome, paraParametro(acomp.descricao), paraParametro(acomp.link || "o material foi enviado por e-mail")];
@@ -57,7 +57,7 @@ export async function executarAcompanhamentos({ agora = new Date() } = {}) {
         tentativas: tentativas + 1,
         proximo_contato: somarDias(dataHoje, intervalo),
       });
-      await registrarConversa(telefone, cliente.nome, "saida", `[template ${template}] ${parametros.join(" | ")}`);
+      await registrarConversa(telefone, nomeEmpresa(cliente), "saida", `[template ${template}] ${parametros.join(" | ")}`);
       resultado.enviadas++;
     } catch (e) {
       resultado.erros++;

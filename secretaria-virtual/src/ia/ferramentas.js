@@ -4,7 +4,7 @@
 import {
   clientePorTelefone, cadastrarContato, atualizarCliente,
   acompanhamentosAbertos, atualizarAcompanhamento, listarAgenda, criarAgendamento,
-  atualizarAgendamento, definirModoAtendimento, valorEmReais, lerConfig,
+  atualizarAgendamento, definirModoAtendimento, valorEmReais, lerConfig, nomeEmpresa,
 } from "../dados.js";
 import { avisarEquipe } from "../avisos.js";
 import { situacaoMensalidade, mesPorExtenso } from "../rotinas/cobranca.js";
@@ -113,7 +113,7 @@ function resumoMensalidade(cliente) {
   if (sit.motivo === "desativada") return { cobranca_automatica: false, pago_ate: cliente.pago_ate || null };
   if (sit.motivo) return { observacao: `cadastro incompleto (${sit.motivo})` };
   return {
-    descricao: cliente.descricao || "mensalidade",
+    descricao: "serviços de marketing",
     valor: `R$ ${valorEmReais(cliente.valor)}`,
     pago_ate: cliente.pago_ate,
     mes_em_aberto: mesPorExtenso(sit.mes),
@@ -131,7 +131,7 @@ function resumoMensalidade(cliente) {
  */
 export async function executarFerramenta(nome, entrada, contexto) {
   const cliente = await clientePorTelefone(contexto.telefone);
-  const nomeCliente = cliente?.nome || contexto.nomeWhatsApp || contexto.telefone;
+  const nomeCliente = (cliente && [cliente.contato, nomeEmpresa(cliente)].filter(Boolean).join(", ")) || contexto.nomeWhatsApp || contexto.telefone;
 
   switch (nome) {
     case "consultar_situacao_cliente": {
@@ -143,7 +143,7 @@ export async function executarFerramenta(nome, entrada, contexto) {
         .filter((a) => String(a.cliente_id) === String(cliente.id) && a.status === "confirmado" && a.inicio && paraDate(a.inicio) > agora)
         .map((a) => ({ id: a.id, titulo: a.titulo, quando: `${nomeDoDia(a.inicio.slice(0, 10))}, ${dataBR(a.inicio)} às ${a.inicio.slice(11)}`, duracao_min: a.duracao_min }));
       return {
-        cliente: { id: cliente.id, nome: cliente.nome, empresa: cliente.empresa, status: cliente.status, observacoes: cliente.observacoes },
+        cliente: { id: cliente.id, contato: cliente.contato, empresa: nomeEmpresa(cliente), status: cliente.status, observacoes: cliente.observacoes },
         mensalidade: resumoMensalidade(cliente),
         chave_pix_padrao: cfg.chave_pix || null,
         acompanhamentos_aguardando: acomps.map((a) => ({ id: a.id, tipo: a.tipo, descricao: a.descricao, link: a.link || null })),

@@ -24,12 +24,12 @@ O sistema vem configurado para começar **só com a cobrança das mensalidades d
 
 | Coluna | O que colocar |
 |---|---|
-| `nome` | Nome do cliente ou da empresa |
+| `empresa` | Nome da empresa cliente (ex.: CASA PORTO). Vai na mensagem como "Casa Porto" |
+| `contato` | Nome da pessoa com quem falamos. A mensagem começa com "Olá, " e o primeiro nome. Sem contato, usa o nome da empresa |
 | `telefone` | WhatsApp com DDD (ex.: 11 98765-4321) |
 | `cobranca_automatica` | `sim` para receber lembretes. `não` ou em branco: **nunca** recebe mensagem. Use para quem sempre paga em dia |
 | `valor` | Valor da mensalidade |
 | `dia_vencimento` | Dia do mês em que vence (1 a 31). Dia 31 em mês curto vira o último dia do mês |
-| `descricao` | Opcional. O que é cobrado (ex.: Gestão de redes). Sem nada, a mensagem diz "mensalidade" |
 | `link_pagamento` | Opcional. Sem link, a mensagem leva a `chave_pix` da aba Config |
 | `pago_ate` | **Último mês pago** (ex.: 10/2026). Sem isso o cliente não é cobrado, para ninguém receber cobrança de um mês que já pagou |
 | `aviso_mes`, `avisos_enviados`, `ultimo_aviso` | Preenchidas pelo sistema. Não precisa mexer |
@@ -46,12 +46,12 @@ O sistema vem configurado para começar **só com a cobrança das mensalidades d
 
 **Exemplo:**
 
-| nome | telefone | cobranca_automatica | valor | dia_vencimento | descricao | pago_ate |
+| empresa | contato | telefone | cobranca_automatica | valor | dia_vencimento | pago_ate |
 |---|---|---|---|---|---|---|
-| CASA PORTO | 11 98765-4321 | sim | R$ 3.500,00 | 10 | Gestão de redes | 10/2026 |
-| LARGO | 11 91111-2222 | não | R$ 1.500,00 | 5 | | |
+| CASA PORTO | Marcelo | 21 98765-4321 | sim | R$ 3.500,00 | 10 | 10/2026 |
+| LARGO | Ana | 21 91111-2222 | não | R$ 1.500,00 | 5 | |
 
-A Casa Porto recebe lembretes de novembro em 07/11, 10/11, 11/11, 13/11 e 17/11, até o `pago_ate` virar 11/2026. A mensagem diz, por exemplo: "Olá, Casa Porto! Passando para lembrar que a fatura de *Gestão de redes (novembro/2026)*, no valor de R$ 3.500,00, vence em 10/11/2026...". O Largo nunca recebe.
+A Casa Porto recebe lembretes de novembro em 07/11, 10/11, 11/11, 13/11 e 17/11, até o `pago_ate` virar 11/2026. A mensagem diz, por exemplo: "Olá, Marcelo! Tudo bem? Passando para lembrar do vencimento dos serviços de marketing da empresa Casa Porto, no valor de R$ 3.500,00, que vence em 10/11/2026. Para facilitar o pagamento, seguem os dados abaixo: Chave PIX: ...". O Largo nunca recebe.
 
 **O que você precisa para essa primeira etapa:** os passos 1, 2, 3 e 5 abaixo. A chave do Claude (passo 4) não é necessária. Dos templates, crie só estes 4: `cobranca_lembrete`, `cobranca_vencimento_hoje`, `cobranca_em_atraso` e `aviso_equipe`.
 
@@ -88,16 +88,18 @@ A aprovação costuma levar de minutos a algumas horas. Você pode ajustar o tex
 
 | Nome | Texto sugerido |
 |---|---|
-| `cobranca_lembrete` | Olá, {{1}}! Passando para lembrar que a fatura de *{{2}}*, no valor de R$ {{3}}, vence em {{4}}. Para pagar: {{5}}. Qualquer dúvida é só responder por aqui. |
-| `cobranca_vencimento_hoje` | Olá, {{1}}! A fatura de *{{2}}*, no valor de R$ {{3}}, vence hoje ({{4}}). Para pagar: {{5}}. Se já pagou, pode desconsiderar ou nos avisar por aqui. |
-| `cobranca_em_atraso` | Olá, {{1}}, tudo bem? Não identificamos o pagamento da fatura de *{{2}}* (R$ {{3}}), que venceu em {{4}}. Para pagar: {{5}}. Se já pagou, é só responder esta mensagem que conferimos. |
+| `cobranca_lembrete` | Olá, {{1}}! Tudo bem?<br>Passando para lembrar do vencimento dos serviços de marketing da empresa *{{2}}*, no valor de R$ {{3}}, que vence em {{4}}.<br>Para facilitar o pagamento, seguem os dados abaixo:<br>{{5}}<br>Qualquer dúvida, é só responder esta mensagem. |
+| `cobranca_vencimento_hoje` | Olá, {{1}}! Tudo bem?<br>Hoje vence o pagamento dos serviços de marketing da empresa *{{2}}*, no valor de R$ {{3}} ({{4}}).<br>Para facilitar o pagamento, seguem os dados abaixo:<br>{{5}}<br>Se já realizou o pagamento, pode desconsiderar esta mensagem. |
+| `cobranca_em_atraso` | Olá, {{1}}! Tudo bem?<br>Ainda não identificamos o pagamento dos serviços de marketing da empresa *{{2}}*, no valor de R$ {{3}}, que venceu em {{4}}.<br>Para facilitar, seguem os dados para pagamento:<br>{{5}}<br>Se já pagou, é só responder esta mensagem que conferimos. |
 | `acompanhamento_aprovacao` | Olá, {{1}}! O material *{{2}}* está pronto para sua aprovação: {{3}}. Pode responder por aqui se aprova ou se quer algum ajuste. |
 | `acompanhamento_entrega` | Olá, {{1}}! Entregamos *{{2}}*: {{3}}. Pode confirmar o recebimento por aqui? |
 | `acompanhamento_retorno` | Olá, {{1}}! Estamos aguardando seu retorno sobre *{{2}}* para seguir com o trabalho. Consegue nos responder por aqui? |
 | `agenda_lembrete` | Olá, {{1}}! Lembrando do nosso compromisso: *{{2}}*, {{3}} às {{4}}. Se precisar remarcar, é só responder esta mensagem. |
 | `aviso_equipe` | Aviso da secretária virtual: {{1}} |
 
-Ao criar cada template, a Meta pede exemplos para as variáveis. Use algo como "Ana", "Gestão de redes – novembro", "1.500,00", "20/11/2026", "https://link.de/pagamento".
+Onde aparece `<br>`, pule uma linha no texto do template. Nas cobranças, as variáveis são: {{1}} nome do contato, {{2}} nome da empresa, {{3}} valor, {{4}} data de vencimento e {{5}} dados para pagamento ("Chave PIX: ..." ou "Link para pagamento: ...").
+
+Ao criar cada template, a Meta pede exemplos para as variáveis. Use algo como "Marcelo", "Casa Porto", "3.500,00", "10/11/2026", "Chave PIX: 00.000.000/0001-00".
 
 O `aviso_equipe` serve para a secretária avisar **você** (cobranças esgotadas, atendimentos transferidos, pagamentos informados, novos agendamentos).
 

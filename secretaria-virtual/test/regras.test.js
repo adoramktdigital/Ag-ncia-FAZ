@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizarTelefone, mesmoTelefone } from "../src/util/telefone.js";
 import { diasEntre, somarDias, normalizarData, normalizarDataHora, paraDate, hoje, diaDaSemana } from "../src/util/datas.js";
-import { etapaDeHoje, lerEtapas, lerMes, situacaoMensalidade, vencimentoDoMes, nomeNaMensagem } from "../src/rotinas/cobranca.js";
+import { etapaDeHoje, lerEtapas, lerMes, situacaoMensalidade, vencimentoDoMes } from "../src/rotinas/cobranca.js";
 import { precisaContato } from "../src/rotinas/acompanhamento.js";
 import { regrasDaAgenda, horariosLivres, motivoIndisponivel } from "../src/rotinas/agenda.js";
-import { valorEmReais, lerValor, cobrancaAtivada, estruturaAtiva } from "../src/dados.js";
+import { valorEmReais, lerValor, cobrancaAtivada, estruturaAtiva, nomeEmpresa, nomeParaSaudacao } from "../src/dados.js";
 import { paraParametro } from "../src/avisos.js";
 import { extrairMensagens } from "../src/whatsapp.js";
 
@@ -58,7 +58,7 @@ test("meses e vencimentos", () => {
 });
 
 test("mensalidade: mês em aberto é o seguinte ao pago_ate", () => {
-  const cli = { nome: "CASA PORTO", cobranca_automatica: "sim", valor: "R$ 3.500,00", dia_vencimento: "10", pago_ate: "10/2026" };
+  const cli = { empresa: "CASA PORTO", cobranca_automatica: "sim", valor: "R$ 3.500,00", dia_vencimento: "10", pago_ate: "10/2026" };
   const s = situacaoMensalidade(cli, "2026-11-07");
   assert.deepEqual(s.mes, { ano: 2026, mes: 11 });
   assert.equal(s.vencimento, "2026-11-10");
@@ -75,10 +75,13 @@ test("mensalidade: mês em aberto é o seguinte ao pago_ate", () => {
   assert.equal(situacaoMensalidade({ ...cli, pago_ate: "" }, "2026-11-07").motivo, "sem pago_ate");
 });
 
-test("nome na mensagem", () => {
-  assert.equal(nomeNaMensagem("CASA PORTO"), "Casa Porto");
-  assert.equal(nomeNaMensagem("DR. LUIZ"), "Dr. Luiz");
-  assert.equal(nomeNaMensagem("Ana Souza"), "Ana");
+test("nomes na mensagem: contato e empresa", () => {
+  assert.equal(nomeEmpresa({ empresa: "CASA PORTO" }), "Casa Porto");
+  assert.equal(nomeEmpresa({ empresa: "BARÃO CHOPP & PETISCOS" }), "Barão Chopp & Petiscos");
+  assert.equal(nomeEmpresa({ empresa: "Pizzaria da Lapa" }), "Pizzaria da Lapa"); // já escrito normal: não mexe
+  assert.equal(nomeParaSaudacao({ empresa: "CASA PORTO", contato: "Marcelo Souza" }), "Marcelo");
+  assert.equal(nomeParaSaudacao({ empresa: "CASA PORTO", contato: "JOÃO PEDRO" }), "João");
+  assert.equal(nomeParaSaudacao({ empresa: "CASA PORTO", contato: "" }), "Casa Porto"); // sem contato, usa a empresa
 });
 
 test("acompanhamento", () => {
@@ -137,5 +140,6 @@ test("liga/desliga de cobrança por cliente", () => {
 test("planilha só com as abas das funções ligadas", () => {
   assert.deepEqual(Object.keys(estruturaAtiva(["cobrancas"])), ["Clientes", "Config", "Conversas"]);
   assert.ok(!estruturaAtiva(["cobrancas"]).Clientes.includes("id"));
+  assert.deepEqual(estruturaAtiva(["cobrancas"]).Clientes.slice(0, 3), ["empresa", "contato", "telefone"]);
   assert.ok(estruturaAtiva(["cobrancas", "ia"]).Clientes.includes("id"));
 });

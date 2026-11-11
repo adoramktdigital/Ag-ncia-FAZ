@@ -1,5 +1,5 @@
 // Agenda: cálculo de horários livres e lembretes de compromissos.
-import { listarAgenda, listarClientes, atualizarAgendamento, lerConfig, registrarConversa } from "../dados.js";
+import { listarAgenda, listarClientes, atualizarAgendamento, lerConfig, registrarConversa, nomeEmpresa, nomeParaSaudacao } from "../dados.js";
 import { enviarTemplate } from "../whatsapp.js";
 import { paraParametro } from "../avisos.js";
 import { TEMPLATES, IDIOMA_TEMPLATES } from "../templates.js";
@@ -82,11 +82,11 @@ export async function executarLembretesAgenda({ agora = new Date() } = {}) {
 
     const [data, hora] = ag.inicio.split(" ");
     const quando = data === hoje(agora) ? `hoje (${dataBR(data)})` : dataBR(data);
-    const parametros = [String(cliente.nome || "").split(" ")[0] || "tudo bem", paraParametro(ag.titulo || "nossa reunião"), quando, hora];
+    const parametros = [nomeParaSaudacao(cliente), paraParametro(ag.titulo || "nossa reunião"), quando, hora];
     try {
       await enviarTemplate(telefone, TEMPLATES.agendaLembrete, IDIOMA_TEMPLATES, parametros);
       await atualizarAgendamento(ag, { lembrete_enviado: "sim" });
-      await registrarConversa(telefone, cliente.nome, "saida", `[template ${TEMPLATES.agendaLembrete}] ${parametros.join(" | ")}`);
+      await registrarConversa(telefone, nomeEmpresa(cliente), "saida", `[template ${TEMPLATES.agendaLembrete}] ${parametros.join(" | ")}`);
       resultado.enviadas++;
     } catch (e) {
       resultado.erros++;

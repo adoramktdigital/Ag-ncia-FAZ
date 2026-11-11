@@ -3,7 +3,10 @@
 // Cada cliente tem: valor, dia_vencimento e pago_ate (último mês pago, ex.: 10/2026).
 // O mês cobrado é sempre o mês seguinte ao pago_ate. Quando você atualiza o pago_ate,
 // os lembretes daquele mês param e a régua recomeça no mês seguinte.
-import { listarClientes, atualizarCliente, lerConfig, valorEmReais, lerValor, registrarConversa, cobrancaAtivada } from "../dados.js";
+import {
+  listarClientes, atualizarCliente, lerConfig, valorEmReais, lerValor, registrarConversa, cobrancaAtivada,
+  nomeEmpresa, nomeParaSaudacao,
+} from "../dados.js";
 import { enviarTemplate } from "../whatsapp.js";
 import { avisarEquipe, paraParametro } from "../avisos.js";
 import { TEMPLATES, IDIOMA_TEMPLATES } from "../templates.js";
@@ -110,9 +113,9 @@ export function situacaoMensalidade(cliente, dataHoje) {
 }
 
 function comoPagar(cliente, cfg) {
-  if (cliente.link_pagamento) return cliente.link_pagamento;
-  if (cfg.chave_pix) return `PIX: ${cfg.chave_pix}`;
-  return "responda esta mensagem que enviamos os dados de pagamento";
+  if (cliente.link_pagamento) return `Link para pagamento: ${cliente.link_pagamento}`;
+  if (cfg.chave_pix) return `Chave PIX: ${cfg.chave_pix}`;
+  return "Responda esta mensagem que enviamos os dados de pagamento.";
 }
 
 export async function executarCobrancas({ agora = new Date() } = {}) {
@@ -127,7 +130,7 @@ export async function executarCobrancas({ agora = new Date() } = {}) {
     const sit = situacaoMensalidade(cliente, dataHoje);
     if (sit.motivo === "desativada") { resultado.desativadas++; continue; }
     if (sit.motivo) {
-      resultado.incompletos.push(`${cliente.nome || "(sem nome)"}: ${sit.motivo}`);
+      resultado.incompletos.push(`${nomeEmpresa(cliente) || "(sem nome)"}: ${sit.motivo}`);
       continue;
     }
     const etapa = etapaDeHoje(sit, etapas, dataHoje);
@@ -135,14 +138,15 @@ export async function executarCobrancas({ agora = new Date() } = {}) {
 
     const telefone = normalizarTelefone(cliente.telefone);
     if (!telefone) {
-      resultado.incompletos.push(`${cliente.nome}: sem telefone`);
+      resultado.incompletos.push(`${nomeEmpresa(cliente)}: sem telefone`);
       continue;
     }
 
     const template = etapa < 0 ? TEMPLATES.cobrancaAntes : etapa === 0 ? TEMPLATES.cobrancaHoje : TEMPLATES.cobrancaAtraso;
+    // {{1}} contato, {{2}} empresa, {{3}} valor, {{4}} vencimento, {{5}} dados para pagamento
     const parametros = [
-      nomeNaMensagem(cliente.nome),
-      paraParametro(`${cliente.descricao || "mensalidade"} (${mesPorExtenso(sit.mes)})`),
+      paraParametro(nomeParaSaudacao(cliente)),
+      paraParametro(nomeEmpresa(cliente)),
       valorEmReais(cliente.valor),
       dataBR(sit.vencimento),
       paraParametro(comoPagar(cliente, cfg)),
@@ -155,18 +159,18 @@ export async function executarCobrancas({ agora = new Date() } = {}) {
         avisos_enviados: [...sit.enviadas, etapa].join(" "),
         ultimo_aviso: dataHoje,
       });
-      await registrarConversa(telefone, cliente.nome, "saida", `[template ${template}] ${parametros.join(" | ")}`);
+      await registrarConversa(telefone, nomeEmpresa(cliente), "saida", `[template ${template}] ${parametros.join(" | ")}`);
       resultado.enviadas++;
 
       if (etapa === ultimaEtapa && etapa > 0) {
         await avisarEquipe(
-          `A mensalidade de ${mesPorExtenso(sit.mes)} de ${cliente.nome} (R$ ${valorEmReais(cliente.valor)}, venceu em ${dataBR(sit.vencimento)}) ` +
+          `A mensalidade de ${mesPorExtenso(sit.mes)} de ${nomeEmpresa(cliente)} (R$ ${valorEmReais(cliente.valor)}, venceu em ${dataBR(sit.vencimento)}) ` +
           `já recebeu todos os lembretes automáticos e continua em aberto. Vale um contato pessoal.`,
         );
       }
     } catch (e) {
       resultado.erros++;
-      console.error(`Erro ao cobrar ${cliente.nome}:`, e.message);
+      console.error(`Erro ao cobrar ${nomeEmpresa(cliente)}:`, e.message);
     }
   }
 
@@ -174,17 +178,4 @@ export async function executarCobrancas({ agora = new Date() } = {}) {
     console.warn("[Cobrança] clientes com cobrança ligada mas dados incompletos:", resultado.incompletos.join("; "));
   }
   return resultado;
-}
-
-/**
- * Nome usado no "Olá, ...!". Nomes em maiúsculas costumam ser de empresas
- * ("CASA PORTO" vira "Casa Porto"); nomes normais usam só o primeiro nome.
- */
-export function nomeNaMensagem(nome) {
-  const t = String(nome || "").trim().replace(/\s+/g, " ");
-  if (!t) return "tudo bem";
-  if (t === t.toUpperCase()) {
-    return t.toLowerCase().replace(/(^|\s)(\S)/g, (_, esp, letra) => esp + letra.toUpperCase());
-  }
-  return t.split(" ")[0];
 }

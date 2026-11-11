@@ -7,7 +7,8 @@ import { config } from "./config.js";
 /** Estrutura da planilha (abas e colunas). O script `npm run setup-planilha` cria tudo isso. */
 export const ESTRUTURA = {
   // Uma linha por cliente. As colunas de cobrança são da mensalidade (cliente de recorrência).
-  Clientes: ["nome", "telefone", "cobranca_automatica", "valor", "dia_vencimento", "descricao",
+  // empresa = nome da empresa cliente; contato = pessoa com quem falamos ("Olá, Fulano!").
+  Clientes: ["empresa", "contato", "telefone", "cobranca_automatica", "valor", "dia_vencimento",
     "link_pagamento", "pago_ate", "observacoes", "aviso_mes", "avisos_enviados", "ultimo_aviso"],
   Acompanhamentos: ["id", "cliente_id", "tipo", "descricao", "link", "status", "proximo_contato",
     "tentativas", "resposta_cliente", "atualizado_em"],
@@ -36,7 +37,7 @@ export function estruturaAtiva(modulos = config.modulos) {
   return estrutura;
 }
 
-const COLUNAS_EXTRAS_CLIENTES = ["id", "email", "empresa", "status", "criado_em"];
+const COLUNAS_EXTRAS_CLIENTES = ["id", "email", "status", "criado_em"];
 
 /** Listas de opções (menu suspenso) aplicadas pelo setup em algumas colunas. */
 export const LISTAS = {
@@ -113,6 +114,28 @@ export function valorEmReais(valor) {
 
 const minusculo = (v) => String(v ?? "").trim().toLowerCase();
 
+/** Texto todo em maiúsculas vira "Primeira Letra Maiúscula" ("CASA PORTO" -> "Casa Porto"). */
+export function capitalizar(texto) {
+  const t = String(texto ?? "").trim().replace(/\s+/g, " ");
+  if (!t || t !== t.toUpperCase()) return t;
+  return t.toLowerCase().replace(/(^|[\s(/-])(\p{L})/gu, (_, antes, letra) => antes + letra.toUpperCase());
+}
+
+/** Nome da empresa cliente, para mensagens ("Casa Porto"). */
+export function nomeEmpresa(cliente) {
+  return capitalizar(cliente?.empresa || cliente?.nome || "");
+}
+
+/**
+ * Como chamar a pessoa no "Olá, ...!": primeiro nome do contato.
+ * Sem contato, usa o nome da empresa.
+ */
+export function nomeParaSaudacao(cliente) {
+  const contato = capitalizar(cliente?.contato || "");
+  if (contato) return contato.split(" ")[0];
+  return nomeEmpresa(cliente) || "tudo bem";
+}
+
 /**
  * Coluna cobranca_automatica do cliente. Só cobra quem está marcado como "sim":
  * cliente sem nada preenchido NÃO é cobrado, para ninguém receber mensagem por engano.
@@ -141,7 +164,7 @@ export async function clientePorId(id) {
 export async function cadastrarContato({ nome, telefone, empresa = "", email = "", observacoes = "" }) {
   const cliente = {
     id: novoId("C"),
-    nome,
+    contato: nome,
     telefone: normalizarTelefone(telefone),
     email,
     empresa,

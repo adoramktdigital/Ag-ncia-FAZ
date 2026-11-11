@@ -14,10 +14,10 @@ const mesAnterior = mesV === 1 ? `12/${anoV - 1}` : `${String(mesV - 1).padStart
 const abas = {
   Clientes: [
     // vence daqui a 3 dias -> recebe o lembrete D-3
-    { id: "C1", nome: "Ana Souza", telefone: "(11) 98765-4321", cobranca_automatica: "sim", valor: "R$ 1.500,00",
-      dia_vencimento: String(Number(vence.slice(8, 10))), pago_ate: mesAnterior, descricao: "Gestão de redes" },
-    { id: "C2", nome: "Bruno Lima", telefone: "(11) 91111-2222", cobranca_automatica: "não", valor: "800", dia_vencimento: "1", pago_ate: "01/2020" },
-    { id: "C3", nome: "Carla Dias", telefone: "(11) 93333-4444", cobranca_automatica: "", valor: "500", dia_vencimento: "1", pago_ate: "01/2020" },
+    { id: "C1", empresa: "CASA PORTO", contato: "Ana Souza", telefone: "(11) 98765-4321", cobranca_automatica: "sim", valor: "R$ 1.500,00",
+      dia_vencimento: String(Number(vence.slice(8, 10))), pago_ate: mesAnterior },
+    { id: "C2", empresa: "Bruno Lima", telefone: "(11) 91111-2222", cobranca_automatica: "não", valor: "800", dia_vencimento: "1", pago_ate: "01/2020" },
+    { id: "C3", empresa: "Carla Dias", telefone: "(11) 93333-4444", cobranca_automatica: "", valor: "500", dia_vencimento: "1", pago_ate: "01/2020" },
   ],
   Acompanhamentos: [{ id: "P1", cliente_id: "C1", tipo: "aprovacao", descricao: "Posts de dezembro", link: "https://exemplo.com/posts", status: "aguardando", proximo_contato: "", tentativas: "" }],
   Agenda: [], Config: [{ chave: "telefone_humano", valor: "5511900000000" }], Atendimento: [], Conversas: [],
@@ -81,8 +81,12 @@ test("rotinas enviam cobrança D-3 e pedido de aprovação", async () => {
   assert.equal(abas.Clientes[0].ultimo_aviso, hoje());
   assert.equal(abas.Clientes[0].aviso_mes, `${String(mesV).padStart(2, "0")}/${anoV}`);
   const cobranca = enviados.find((e) => e.template?.name === "cobranca_lembrete");
-  assert.match(cobranca.template.components[0].parameters[1].text, /^Gestão de redes \(\S+\/\d{4}\)$/);
-  assert.equal(cobranca.template.components[0].parameters[2].text, "1.500,00");
+  const p = cobranca.template.components[0].parameters.map((x) => x.text);
+  assert.equal(p[0], "Ana");          // Olá, Ana!
+  assert.equal(p[1], "Casa Porto");   // ...serviços de marketing da empresa Casa Porto
+  assert.equal(p[2], "1.500,00");
+  assert.match(p[3], /^\d{2}\/\d{2}\/\d{4}$/);
+  assert.match(p[4], /^Responda esta mensagem/); // sem PIX configurado na Config do teste
 
   // rodar de novo no mesmo dia não manda nada repetido
   enviados.length = 0;
