@@ -1,0 +1,26 @@
+{
+  "name": "secretaria-virtual-faz",
+  "version": "1.0.0",
+  "description": "Secretária virtual da Agência FAZ no WhatsApp (cobranças, acompanhamentos, atendimento com IA e agendamento)",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "TZ=America/Sao_Paulo node --experimental-test-module-mocks --test test/*.test.js",
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "setup-planilha": "node scripts/setup-planilha.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@googleapis/sheets": "^18.1.2",
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "node-cron": "^4.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

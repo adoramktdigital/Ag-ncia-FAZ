@@ -1,0 +1,5 @@
+node_modules/
+.env
+*.log
+credenciais*.json
+service-account*.json
