@@ -2,11 +2,12 @@
 // Segurança: o telefone de quem está conversando vem do servidor (contexto), nunca da IA,
 // então um cliente só consegue ver e alterar os próprios dados.
 import {
-  clientePorTelefone, cadastrarContato, cobrancasEmAberto, atualizarCobranca,
+  clientePorTelefone, cadastrarContato, atualizarCliente,
   acompanhamentosAbertos, atualizarAcompanhamento, listarAgenda, criarAgendamento,
   atualizarAgendamento, definirModoAtendimento, valorEmReais, lerConfig,
 } from "../dados.js";
 import { avisarEquipe } from "../avisos.js";
+import { situacaoMensalidade, mesPorExtenso } from "../rotinas/cobranca.js";
 import { carregarAgendaERegras, horariosLivres, motivoIndisponivel } from "../rotinas/agenda.js";
 import { hoje, agoraTexto, normalizarData, normalizarDataHora, dataBR, nomeDoDia, paraDate } from "../util/datas.js";
 
@@ -19,7 +20,7 @@ export const DEFINICOES = [
   {
     name: "consultar_situacao_cliente",
     description:
-      "Busca o cadastro de quem está conversando e tudo o que está em aberto: cobranças pendentes, " +
+      "Busca o cadastro de quem está conversando e tudo o que está em aberto: mensalidade, " +
       "materiais aguardando aprovação/retorno e próximos agendamentos. Use no início do atendimento " +
       "e sempre que precisar de dados atualizados. Se a pessoa não for cliente, retorna cliente = null.",
     strict: true,
@@ -40,12 +41,11 @@ export const DEFINICOES = [
   {
     name: "informar_pagamento",
     description:
-      "Registra que o cliente disse que já pagou uma cobrança. A cobrança fica 'em_verificacao' " +
-      "e a equipe é avisada para conferir — nunca diga que o pagamento foi confirmado.",
+      "Registra que o cliente disse que já pagou a mensalidade e avisa a equipe para conferir. " +
+      "Nunca diga que o pagamento foi confirmado.",
     strict: true,
     input_schema: objeto({
-      cobranca_id: { type: "string", description: "ID da cobrança (veja consultar_situacao_cliente)" },
-      observacao: { type: "string", description: "O que o cliente disse (data, forma de pagamento, se mandou comprovante)" },
+      observacao: { type: "string", description: "O que o cliente disse (mês pago, data, forma de pagamento, se mandou comprovante)" },
     }),
   },
   {
@@ -108,11 +108,18 @@ export const DEFINICOES = [
   },
 ];
 
-function resumoCobranca(c) {
+function resumoMensalidade(cliente) {
+  const sit = situacaoMensalidade(cliente, hoje());
+  if (sit.motivo === "desativada") return { cobranca_automatica: false, pago_ate: cliente.pago_ate || null };
+  if (sit.motivo) return { observacao: `cadastro incompleto (${sit.motivo})` };
   return {
-    id: c.id, descricao: c.descricao, valor: `R$ ${valorEmReais(c.valor)}`,
-    vencimento: dataBR(c.vencimento), status: c.status,
-    link_pagamento: c.link_pagamento || null,
+    descricao: cliente.descricao || "mensalidade",
+    valor: `R$ ${valorEmReais(cliente.valor)}`,
+    pago_ate: cliente.pago_ate,
+    mes_em_aberto: mesPorExtenso(sit.mes),
+    vencimento: dataBR(sit.vencimento),
+    situacao: sit.diasDepoisDoVencimento > 0 ? `vencida há ${sit.diasDepoisDoVencimento} dia(s)` : sit.diasDepoisDoVencimento === 0 ? "vence hoje" : "a vencer",
+    link_pagamento: cliente.link_pagamento || null,
   };
 }
 
@@ -130,16 +137,14 @@ export async function executarFerramenta(nome, entrada, contexto) {
     case "consultar_situacao_cliente": {
       if (!cliente) return { cliente: null, telefone: contexto.telefone, nome_no_whatsapp: contexto.nomeWhatsApp };
       const cfg = await lerConfig();
-      const [cobrancas, acomps, agenda] = await Promise.all([
-        cobrancasEmAberto(cliente.id), acompanhamentosAbertos(cliente.id), listarAgenda(),
-      ]);
+      const [acomps, agenda] = await Promise.all([acompanhamentosAbertos(cliente.id), listarAgenda()]);
       const agora = new Date();
       const proximos = agenda
         .filter((a) => String(a.cliente_id) === String(cliente.id) && a.status === "confirmado" && a.inicio && paraDate(a.inicio) > agora)
         .map((a) => ({ id: a.id, titulo: a.titulo, quando: `${nomeDoDia(a.inicio.slice(0, 10))}, ${dataBR(a.inicio)} às ${a.inicio.slice(11)}`, duracao_min: a.duracao_min }));
       return {
         cliente: { id: cliente.id, nome: cliente.nome, empresa: cliente.empresa, status: cliente.status, observacoes: cliente.observacoes },
-        cobrancas_em_aberto: cobrancas.map(resumoCobranca),
+        mensalidade: resumoMensalidade(cliente),
         chave_pix_padrao: cfg.chave_pix || null,
         acompanhamentos_aguardando: acomps.map((a) => ({ id: a.id, tipo: a.tipo, descricao: a.descricao, link: a.link || null })),
         proximos_agendamentos: proximos,
@@ -157,14 +162,11 @@ export async function executarFerramenta(nome, entrada, contexto) {
 
     case "informar_pagamento": {
       if (!cliente) return { ok: false, erro: "Contato não é cliente cadastrado." };
-      const cobranca = (await cobrancasEmAberto(cliente.id)).find((c) => String(c.id) === String(entrada.cobranca_id));
-      if (!cobranca) return { ok: false, erro: "Cobrança não encontrada entre as cobranças em aberto deste cliente." };
-      await atualizarCobranca(cobranca, {
-        status: "em_verificacao",
-        observacoes: [cobranca.observacoes, `${agoraTexto()} cliente informou pagamento: ${entrada.observacao}`].filter(Boolean).join(" / "),
+      await atualizarCliente(cliente, {
+        observacoes: [cliente.observacoes, `${agoraTexto()} cliente informou pagamento: ${entrada.observacao}`].filter(Boolean).join(" / "),
       });
-      await avisarEquipe(`${nomeCliente} informou que pagou a cobrança ${cobranca.id} (${cobranca.descricao}, R$ ${valorEmReais(cobranca.valor)}). Detalhes: ${entrada.observacao}. Confira e marque como "pago" na planilha.`);
-      return { ok: true, status: "em_verificacao" };
+      await avisarEquipe(`${nomeCliente} informou que pagou a mensalidade. Detalhes: ${entrada.observacao}. Confira e, se caiu, atualize o pago_ate na planilha.`);
+      return { ok: true, mensagem: "Equipe avisada para conferir o pagamento." };
     }
 
     case "registrar_resposta_acompanhamento": {

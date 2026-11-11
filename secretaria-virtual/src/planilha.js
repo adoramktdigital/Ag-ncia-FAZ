@@ -63,7 +63,8 @@ export async function adicionarLinha(aba, objeto) {
   await api().spreadsheets.values.append({
     spreadsheetId: config.google.planilhaId,
     range: aspas(aba),
-    valueInputOption: "USER_ENTERED",
+    // RAW: grava o texto como veio (sem virar data, número ou fórmula).
+    valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [linha] },
   });
@@ -84,7 +85,7 @@ export async function atualizarLinha(aba, numeroLinha, campos) {
   if (!dados.length) return;
   await api().spreadsheets.values.batchUpdate({
     spreadsheetId: config.google.planilhaId,
-    requestBody: { valueInputOption: "USER_ENTERED", data: dados },
+    requestBody: { valueInputOption: "RAW", data: dados },
   });
 }
 
@@ -114,8 +115,17 @@ export async function garantirAbas(estrutura) {
   return novas;
 }
 
-/** Coloca menus suspensos (lista de opções) nas colunas indicadas: { coluna: ["opção1", "opção2"] }. */
-export async function aplicarListas(aba, listas) {
+const PADROES = {
+  TEXT: { type: "TEXT" },
+  MOEDA: { type: "CURRENCY", pattern: '"R$" #,##0.00' },
+  NUMERO: { type: "NUMBER", pattern: "0" },
+};
+
+/**
+ * Coloca menus suspensos (lista de opções) e formatos nas colunas indicadas.
+ * listas: { coluna: ["opção1", "opção2"] } ; formatos: { coluna: "TEXT" | "MOEDA" | "NUMERO" }
+ */
+export async function aplicarListas(aba, listas = {}, formatos = {}) {
   const { data } = await api().spreadsheets.get({ spreadsheetId: config.google.planilhaId });
   const folha = data.sheets.find((s) => s.properties.title === aba);
   if (!folha) return;
@@ -132,6 +142,17 @@ export async function aplicarListas(aba, listas) {
           showCustomUi: true,
           strict: false,
         },
+      },
+    });
+  }
+  for (const [coluna, formato] of Object.entries(formatos)) {
+    const j = cabecalho.indexOf(coluna);
+    if (j === -1 || !PADROES[formato]) continue;
+    requests.push({
+      repeatCell: {
+        range: { sheetId: folha.properties.sheetId, startRowIndex: 1, startColumnIndex: j, endColumnIndex: j + 1 },
+        cell: { userEnteredFormat: { numberFormat: PADROES[formato] } },
+        fields: "userEnteredFormat.numberFormat",
       },
     });
   }

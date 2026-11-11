@@ -6,9 +6,9 @@ import { config } from "./config.js";
 
 /** Estrutura da planilha (abas e colunas). O script `npm run setup-planilha` cria tudo isso. */
 export const ESTRUTURA = {
-  Clientes: ["id", "nome", "telefone", "cobranca_automatica", "email", "empresa", "status", "observacoes", "criado_em"],
-  Cobrancas: ["id", "cliente_id", "descricao", "valor", "vencimento", "status", "link_pagamento",
-    "avisos_enviados", "ultimo_aviso", "pago_em", "observacoes"],
+  // Uma linha por cliente. As colunas de cobrança são da mensalidade (cliente de recorrência).
+  Clientes: ["nome", "telefone", "cobranca_automatica", "valor", "dia_vencimento", "descricao",
+    "link_pagamento", "pago_ate", "observacoes", "aviso_mes", "avisos_enviados", "ultimo_aviso"],
   Acompanhamentos: ["id", "cliente_id", "tipo", "descricao", "link", "status", "proximo_contato",
     "tentativas", "resposta_cliente", "atualizado_em"],
   Agenda: ["id", "cliente_id", "titulo", "inicio", "duracao_min", "status", "lembrete_enviado", "observacoes"],
@@ -19,7 +19,7 @@ export const ESTRUTURA = {
 
 /** Abas usadas por cada função. */
 const ABAS_POR_MODULO = {
-  cobrancas: ["Clientes", "Cobrancas", "Config", "Conversas"],
+  cobrancas: ["Clientes", "Config", "Conversas"],
   acompanhamentos: ["Clientes", "Acompanhamentos", "Config", "Conversas"],
   agenda: ["Clientes", "Agenda", "Config", "Conversas"],
   ia: ["Clientes", "Config", "Atendimento", "Conversas"],
@@ -28,23 +28,39 @@ const ABAS_POR_MODULO = {
 /** Só as abas das funções ligadas (MODULOS), para a planilha não ficar poluída. */
 export function estruturaAtiva(modulos = config.modulos) {
   const abas = new Set(modulos.flatMap((m) => ABAS_POR_MODULO[m] || []));
-  return Object.fromEntries(Object.entries(ESTRUTURA).filter(([aba]) => abas.has(aba)));
+  const estrutura = Object.fromEntries(Object.entries(ESTRUTURA).filter(([aba]) => abas.has(aba)));
+  // As outras funções precisam de um código por cliente e de alguns dados extras.
+  if (modulos.some((m) => m !== "cobrancas")) {
+    estrutura.Clientes = [...estrutura.Clientes, ...COLUNAS_EXTRAS_CLIENTES];
+  }
+  return estrutura;
 }
+
+const COLUNAS_EXTRAS_CLIENTES = ["id", "email", "empresa", "status", "criado_em"];
 
 /** Listas de opções (menu suspenso) aplicadas pelo setup em algumas colunas. */
 export const LISTAS = {
   Clientes: { cobranca_automatica: ["sim", "não"] },
-  Cobrancas: { status: ["pendente", "em_verificacao", "pago", "cancelado"] },
   Acompanhamentos: { tipo: ["aprovacao", "entrega", "retorno"], status: ["aguardando", "aprovado", "ajustes", "concluido", "sem_resposta"] },
   Agenda: { status: ["confirmado", "cancelado"] },
   Atendimento: { modo: ["bot", "humano"] },
+};
+
+/** Formato das colunas, aplicado pelo setup (texto evita que "11/2026" vire data). */
+export const FORMATOS = {
+  Clientes: {
+    telefone: "TEXT", valor: "MOEDA", dia_vencimento: "NUMERO", pago_ate: "TEXT",
+    aviso_mes: "TEXT", avisos_enviados: "TEXT", ultimo_aviso: "TEXT",
+  },
+  Config: { valor: "TEXT" },
+  Conversas: { data: "TEXT", telefone: "TEXT" },
 };
 
 /** Valores iniciais da aba Config (o setup só grava os que ainda não existem). */
 export const CONFIG_PADRAO = [
   ["nome_empresa", "Agência FAZ", "Nome da empresa"],
   ["telefone_humano", "", "Seu WhatsApp: recebe os avisos e as respostas dos clientes (ex.: 5511999999999)"],
-  ["chave_pix", "", "Chave PIX padrão, usada quando a cobrança não tem link de pagamento"],
+  ["chave_pix", "", "Chave PIX enviada na cobrança quando o cliente não tem link de pagamento"],
   ["cobranca_etapas", "-3,0,1,3,7", "Dias em relação ao vencimento em que a cobrança é enviada (negativo = antes)"],
   ["encaminhar_respostas", "sim", "sim = quando um cliente responder, a mensagem é encaminhada para o telefone_humano. Use não se você vê as mensagens direto no app WhatsApp Business"],
   ["nome_secretaria", "Fá", "Nome da secretária virtual (só com a IA ligada)"],
@@ -78,10 +94,19 @@ function novoId(prefixo) {
   return `${prefixo}${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 36 ** 2).toString(36).toUpperCase()}`;
 }
 
+/** "R$ 1.234,56" -> 1234.56 ; "1234.56" -> 1234.56 ; "R$ -" -> NaN */
+export function lerValor(valor) {
+  if (typeof valor === "number") return valor;
+  const t = String(valor ?? "").replace(/[^\d,.-]/g, "").replace(/^-$/, "");
+  if (!/\d/.test(t)) return NaN;
+  if (t.includes(",")) return Number(t.replace(/\./g, "").replace(",", "."));
+  // "3.500" (milhar com ponto, sem centavos) -> 3500
+  if (/^\d{1,3}(\.\d{3})+$/.test(t)) return Number(t.replace(/\./g, ""));
+  return Number(t);
+}
+
 export function valorEmReais(valor) {
-  const t = String(valor ?? "").replace(/[^\d,.-]/g, "");
-  // "1.234,56" -> 1234.56 ; "1234.56" -> 1234.56
-  const n = t.includes(",") ? Number(t.replace(/\./g, "").replace(",", ".")) : Number(t);
+  const n = lerValor(valor);
   if (!Number.isFinite(n)) return String(valor ?? "");
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -128,26 +153,10 @@ export async function cadastrarContato({ nome, telefone, empresa = "", email = "
   return cliente;
 }
 
-// ---------- Cobranças ----------
+// ---------- Mensalidades ----------
 
-export async function listarCobrancas() {
-  const linhas = await lerTabela("Cobrancas");
-  return linhas.map((c) => ({
-    ...c,
-    vencimento: normalizarData(c.vencimento),
-    ultimo_aviso: normalizarData(c.ultimo_aviso),
-    status: minusculo(c.status) || "pendente",
-  }));
-}
-
-export async function cobrancasEmAberto(clienteId) {
-  return (await listarCobrancas()).filter(
-    (c) => String(c.cliente_id) === String(clienteId) && ["pendente", "em_verificacao"].includes(c.status),
-  );
-}
-
-export function atualizarCobranca(cobranca, campos) {
-  return atualizarLinha("Cobrancas", cobranca._linha, campos);
+export function atualizarCliente(cliente, campos) {
+  return atualizarLinha("Clientes", cliente._linha, campos);
 }
 
 // ---------- Acompanhamentos ----------

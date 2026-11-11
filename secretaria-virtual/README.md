@@ -8,7 +8,7 @@ Uma secretária que funciona no WhatsApp oficial da empresa. Ela:
 - **Agenda reuniões e gravações**: mostra horários livres, marca, cancela e manda lembrete na véspera.
 - **Chama você quando precisa**: passa o atendimento para um humano e manda um aviso no seu WhatsApp.
 
-Tudo fica numa **planilha do Google Sheets**. Você cadastra clientes, cobranças e trabalhos ali, e a secretária lê e atualiza a mesma planilha.
+Tudo fica numa **planilha do Google Sheets**. Você cadastra os clientes e as mensalidades ali, e a secretária lê e atualiza a mesma planilha.
 
 ```
 Cliente no WhatsApp ──► Meta (WhatsApp Cloud API) ──► este servidor ──► Claude (IA)
@@ -18,31 +18,40 @@ Cliente no WhatsApp ──► Meta (WhatsApp Cloud API) ──► este servidor 
 
 ---
 
-## Comece por aqui: só a cobrança
+## Comece por aqui: cobrança de mensalidades
 
-O sistema vem configurado para começar **só com a cobrança automática** (`MODULOS=cobrancas`), sem IA:
+O sistema vem configurado para começar **só com a cobrança das mensalidades dos clientes de recorrência** (`MODULOS=cobrancas`), sem IA. Tudo fica na aba **Clientes**, uma linha por cliente:
 
-1. Na aba **Clientes**, cadastre cada cliente e escolha, na coluna **`cobranca_automatica`**, se ele recebe cobrança:
-   - `sim`: recebe os lembretes.
-   - `não` ou em branco: **nunca** recebe mensagem. Use para quem sempre paga em dia.
-2. Na aba **Cobrancas**, lance cada fatura: `cliente_id`, `descricao`, `valor`, `vencimento`, `status = pendente` e, se tiver, o `link_pagamento`. Sem link, a mensagem leva a `chave_pix` da aba Config.
-3. Todo dia, de segunda a sábado, às 9h30, o sistema manda os lembretes na régua da aba Config (padrão: 3 dias antes, no dia, e 1, 3 e 7 dias depois). Quando o cliente pagar, mude o `status` para `pago` e os lembretes param.
-4. **Quando o cliente responder**, ninguém responde automaticamente. Você responde pessoalmente:
+| Coluna | O que colocar |
+|---|---|
+| `nome` | Nome do cliente ou da empresa |
+| `telefone` | WhatsApp com DDD (ex.: 11 98765-4321) |
+| `cobranca_automatica` | `sim` para receber lembretes. `não` ou em branco: **nunca** recebe mensagem. Use para quem sempre paga em dia |
+| `valor` | Valor da mensalidade |
+| `dia_vencimento` | Dia do mês em que vence (1 a 31). Dia 31 em mês curto vira o último dia do mês |
+| `descricao` | Opcional. O que é cobrado (ex.: Gestão de redes). Sem nada, a mensagem diz "mensalidade" |
+| `link_pagamento` | Opcional. Sem link, a mensagem leva a `chave_pix` da aba Config |
+| `pago_ate` | **Último mês pago** (ex.: 10/2026). Sem isso o cliente não é cobrado, para ninguém receber cobrança de um mês que já pagou |
+| `aviso_mes`, `avisos_enviados`, `ultimo_aviso` | Preenchidas pelo sistema. Não precisa mexer |
+
+**Como funciona:**
+
+1. O sistema sempre cobra o mês seguinte ao `pago_ate`. Com `pago_ate = 10/2026` e vencimento dia 10, ele cobra novembro, que vence em 10/11/2026.
+2. De segunda a sábado, às 9h30, saem os lembretes na régua da aba Config (padrão: 3 dias antes, no dia, e 1, 3 e 7 dias depois do vencimento).
+3. **Quando o cliente pagar, atualize o `pago_ate`** (ex.: de 10/2026 para 11/2026). Os lembretes de novembro param, e a régua de dezembro começa 3 dias antes do próximo vencimento. Se ele pagar adiantado, coloque o mês até onde pagou.
+4. Se o cliente passar por toda a régua sem pagar, você recebe um aviso para fazer um contato pessoal.
+5. **Quando o cliente responder**, ninguém responde automaticamente. Você responde pessoalmente:
    - Se o número da empresa continua no app **WhatsApp Business** do celular (modo coexistência), as respostas aparecem lá normalmente. Coloque `encaminhar_respostas = não` na aba Config.
-   - Se o número ficou só na API, deixe `encaminhar_respostas = sim`. Cada resposta de cliente chega no seu WhatsApp (`telefone_humano`), e você responde mandando para o número da empresa: `#r 5511988887777 Oi, Bruno! Obrigado, vou conferir.`
+   - Se o número ficou só na API, deixe `encaminhar_respostas = sim`. Cada resposta de cliente chega no seu WhatsApp (`telefone_humano`), e você responde mandando para o número da empresa: `#r 5511988887777 Oi! Obrigado, vou conferir.`
 
 **Exemplo:**
 
-| Clientes | id | nome | telefone | cobranca_automatica |
-|---|---|---|---|---|
-| | C001 | Ana Souza | 11 98765-4321 | sim |
-| | C002 | Bruno Lima | 11 91111-2222 | não |
+| nome | telefone | cobranca_automatica | valor | dia_vencimento | descricao | pago_ate |
+|---|---|---|---|---|---|---|
+| CASA PORTO | 11 98765-4321 | sim | R$ 3.500,00 | 10 | Gestão de redes | 10/2026 |
+| LARGO | 11 91111-2222 | não | R$ 1.500,00 | 5 | | |
 
-| Cobrancas | id | cliente_id | descricao | valor | vencimento | status | link_pagamento |
-|---|---|---|---|---|---|---|---|
-| | F001 | C001 | Gestão de redes – novembro | 1500 | 20/11/2026 | pendente | |
-
-Nesse exemplo, a Ana recebe lembretes em 17/11, 20/11, 21/11, 23/11 e 27/11, até a fatura virar `pago`. O Bruno nunca recebe.
+A Casa Porto recebe lembretes de novembro em 07/11, 10/11, 11/11, 13/11 e 17/11, até o `pago_ate` virar 11/2026. A mensagem diz, por exemplo: "Olá, Casa Porto! Passando para lembrar que a fatura de *Gestão de redes (novembro/2026)*, no valor de R$ 3.500,00, vence em 10/11/2026...". O Largo nunca recebe.
 
 **O que você precisa para essa primeira etapa:** os passos 1, 2, 3 e 5 abaixo. A chave do Claude (passo 4) não é necessária. Dos templates, crie só estes 4: `cobranca_lembrete`, `cobranca_vencimento_hoje`, `cobranca_em_atraso` e `aviso_equipe`.
 
@@ -125,7 +134,7 @@ O servidor precisa ficar **ligado 24h** e ter um endereço **HTTPS público**. A
    - **URL de callback:** `https://SEU-ENDERECO.onrender.com/webhook`
    - **Token de verificação:** o mesmo valor de `WHATSAPP_VERIFY_TOKEN`
    - Clique em **Verificar e salvar** e, em **Campos do webhook**, assine **messages**.
-6. Teste: cadastre você mesmo como cliente com `cobranca_automatica = sim`, lance uma cobrança vencendo hoje e mande `#rotinas` do seu WhatsApp. A cobrança deve chegar em seguida 🎉
+6. Teste: cadastre você mesmo como cliente com `cobranca_automatica = sim`, `dia_vencimento` igual ao dia de hoje e `pago_ate` igual ao mês passado. Depois mande `#rotinas` do seu WhatsApp. A cobrança deve chegar em seguida 🎉
 
 **Rodando no seu computador (para testar):**
 
@@ -147,8 +156,7 @@ Para a Meta enxergar seu computador, use um túnel como `ngrok http 3000` e conf
 
 | Aba | Para que serve | Colunas importantes |
 |---|---|---|
-| **Clientes** | Cadastro de clientes. Com a IA ligada, contatos novos entram aqui como `lead`. | `id` (qualquer código único, ex.: C001), `nome`, `telefone` (com DDD, ex.: 11 98765-4321), `cobranca_automatica` (`sim` ou `não`) |
-| **Cobrancas** | Uma linha por fatura. | `id`, `cliente_id`, `descricao`, `valor`, `vencimento` (DD/MM/AAAA), `status`, `link_pagamento` |
+| **Clientes** | Uma linha por cliente, com a mensalidade. Com outras funções ligadas, ganha as colunas `id` (código do cliente, ex.: C001), `email`, `empresa` e `status`. Com a IA ligada, contatos novos entram aqui como `lead`. | `nome`, `telefone`, `cobranca_automatica`, `valor`, `dia_vencimento`, `pago_ate` |
 | **Acompanhamentos** | Materiais aguardando aprovação, entregas e retornos. | `id`, `cliente_id`, `tipo` (`aprovacao`, `entrega` ou `retorno`), `descricao`, `link`, `status` |
 | **Agenda** | Compromissos. A secretária marca aqui, e você também pode lançar à mão para bloquear horários. | `inicio` (DD/MM/AAAA HH:mm), `duracao_min`, `status` |
 | **Config** | Ajustes: nome da empresa, seu telefone, PIX, régua de cobrança, horários da agenda e informações para a IA. | `chave`, `valor` |
@@ -157,10 +165,7 @@ Para a Meta enxergar seu computador, use um túnel como `ngrok http 3000` e conf
 
 ### Status
 
-- **Cobrança:**
-  - `pendente`: a secretária cobra.
-  - `em_verificacao`: o cliente disse que pagou. Confira e mude para `pago`.
-  - `pago` ou `cancelado`: a secretária para de cobrar.
+- **Mensalidade:** controlada pelo `pago_ate`. Para parar de cobrar um cliente de vez, coloque `cobranca_automatica = não`.
 - **Acompanhamento:**
   - `aguardando`: a secretária manda lembretes a cada X dias.
   - `aprovado`, `ajustes`, `concluido` ou `sem_resposta`: os lembretes param.
@@ -169,7 +174,7 @@ Para a Meta enxergar seu computador, use um túnel como `ngrok http 3000` e conf
 ### Primeiros ajustes na aba Config
 
 - `telefone_humano`: **seu WhatsApp**, que recebe os avisos (ex.: 5511999999999).
-- `chave_pix`: usada quando a cobrança não tem link de pagamento.
+- `chave_pix`: usada quando o cliente não tem link de pagamento.
 - `informacoes_empresa`: **muito importante**. Escreva os serviços, como funciona, preços que podem ser informados, endereço, horário e perguntas frequentes. É daqui que a IA tira as respostas.
 - `cobranca_etapas`: o padrão `-3,0,1,3,7` significa 3 dias antes, no dia, e 1, 3 e 7 dias depois. Depois da última etapa, você recebe um aviso para fazer um contato pessoal.
 - `agenda_*`: dias e horários em que a secretária pode agendar.

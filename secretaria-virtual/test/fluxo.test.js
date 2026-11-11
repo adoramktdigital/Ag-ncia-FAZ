@@ -5,17 +5,19 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { hoje, somarDias } from "../src/util/datas.js";
 
+// Mensalidade da Ana vence daqui a 3 dias; o pago_ate é o mês anterior a esse vencimento.
+const vence = somarDias(hoje(), 3);
+const [anoV, mesV] = vence.split("-").map(Number);
+const mesAnterior = mesV === 1 ? `12/${anoV - 1}` : `${String(mesV - 1).padStart(2, "0")}/${anoV}`;
+
 // ---- planilha em memória ----
 const abas = {
   Clientes: [
-    { id: "C1", nome: "Ana Souza", telefone: "(11) 98765-4321", cobranca_automatica: "sim", status: "ativo" },
-    { id: "C2", nome: "Bruno Lima", telefone: "(11) 91111-2222", cobranca_automatica: "não", status: "ativo" },
-    { id: "C3", nome: "Carla Dias", telefone: "(11) 93333-4444", cobranca_automatica: "", status: "ativo" },
-  ],
-  Cobrancas: [
-    { id: "K1", cliente_id: "C1", descricao: "Gestão de redes - nov", valor: "1500", vencimento: somarDias(hoje(), 3), status: "pendente", avisos_enviados: "", ultimo_aviso: "" },
-    { id: "K2", cliente_id: "C2", descricao: "Site", valor: "800", vencimento: hoje(), status: "pendente", avisos_enviados: "", ultimo_aviso: "" },
-    { id: "K3", cliente_id: "C3", descricao: "Logo", valor: "500", vencimento: hoje(), status: "pendente", avisos_enviados: "", ultimo_aviso: "" },
+    // vence daqui a 3 dias -> recebe o lembrete D-3
+    { id: "C1", nome: "Ana Souza", telefone: "(11) 98765-4321", cobranca_automatica: "sim", valor: "R$ 1.500,00",
+      dia_vencimento: String(Number(vence.slice(8, 10))), pago_ate: mesAnterior, descricao: "Gestão de redes" },
+    { id: "C2", nome: "Bruno Lima", telefone: "(11) 91111-2222", cobranca_automatica: "não", valor: "800", dia_vencimento: "1", pago_ate: "01/2020" },
+    { id: "C3", nome: "Carla Dias", telefone: "(11) 93333-4444", cobranca_automatica: "", valor: "500", dia_vencimento: "1", pago_ate: "01/2020" },
   ],
   Acompanhamentos: [{ id: "P1", cliente_id: "C1", tipo: "aprovacao", descricao: "Posts de dezembro", link: "https://exemplo.com/posts", status: "aguardando", proximo_contato: "", tentativas: "" }],
   Agenda: [], Config: [{ chave: "telefone_humano", valor: "5511900000000" }], Atendimento: [], Conversas: [],
@@ -48,7 +50,7 @@ const servidor = http.createServer((req, res) => {
     const temResultado = Array.isArray(ultima.content) && ultima.content.some((b) => b.type === "tool_result");
     const conteudo = !temResultado
       ? [{ type: "tool_use", id: "tu1", name: "registrar_resposta_acompanhamento", input: { acompanhamento_id: "P1", resultado: "aprovado", comentario: "Pode publicar" } },
-         { type: "tool_use", id: "tu2", name: "informar_pagamento", input: { cobranca_id: "K1", observacao: "Pagou via PIX hoje" } }]
+         { type: "tool_use", id: "tu2", name: "informar_pagamento", input: { observacao: "Pagou via PIX hoje" } }]
       : [{ type: "text", text: "Obrigada, Ana! Registrei a aprovação e já pedi para a equipe conferir o pagamento." }];
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({
@@ -75,8 +77,17 @@ test("rotinas enviam cobrança D-3 e pedido de aprovação", async () => {
   const nomes = enviados.map((e) => e.template?.name);
   assert.ok(nomes.includes("acompanhamento_aprovacao"));
   assert.ok(nomes.includes("cobranca_lembrete"));
-  assert.equal(abas.Cobrancas[0].avisos_enviados, "-3");
-  assert.equal(abas.Cobrancas[0].ultimo_aviso, hoje());
+  assert.equal(abas.Clientes[0].avisos_enviados, "-3");
+  assert.equal(abas.Clientes[0].ultimo_aviso, hoje());
+  assert.equal(abas.Clientes[0].aviso_mes, `${String(mesV).padStart(2, "0")}/${anoV}`);
+  const cobranca = enviados.find((e) => e.template?.name === "cobranca_lembrete");
+  assert.match(cobranca.template.components[0].parameters[1].text, /^Gestão de redes \(\S+\/\d{4}\)$/);
+  assert.equal(cobranca.template.components[0].parameters[2].text, "1.500,00");
+
+  // rodar de novo no mesmo dia não manda nada repetido
+  enviados.length = 0;
+  const r2 = await executarRotinas(["cobrancas"]);
+  assert.equal(r2.cobrancas.enviadas, 0);
   assert.equal(abas.Acompanhamentos[0].tentativas, 1);
 });
 
@@ -90,7 +101,7 @@ test("cliente responde e a IA registra aprovação e pagamento", async () => {
   assert.equal(pedidos[0].fallbacks, "default");
   assert.match(pedidos[0].messages[0].content, /^\[.+\] Aprovado! E já paguei o boleto$/);
   assert.equal(abas.Acompanhamentos[0].status, "aprovado");
-  assert.equal(abas.Cobrancas[0].status, "em_verificacao");
+  assert.match(abas.Clientes[0].observacoes, /cliente informou pagamento: Pagou via PIX hoje/);
   assert.ok(enviados.some((e) => e.status === "read" && e.message_id === "w1"));
   const texto = enviados.find((e) => e.type === "text" && e.to === "5511987654321");
   assert.match(texto.text.body, /Obrigada, Ana/);

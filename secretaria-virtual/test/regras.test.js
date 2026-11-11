@@ -2,10 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizarTelefone, mesmoTelefone } from "../src/util/telefone.js";
 import { diasEntre, somarDias, normalizarData, normalizarDataHora, paraDate, hoje, diaDaSemana } from "../src/util/datas.js";
-import { etapaDeHoje, lerEtapas } from "../src/rotinas/cobranca.js";
+import { etapaDeHoje, lerEtapas, lerMes, situacaoMensalidade, vencimentoDoMes, nomeNaMensagem } from "../src/rotinas/cobranca.js";
 import { precisaContato } from "../src/rotinas/acompanhamento.js";
 import { regrasDaAgenda, horariosLivres, motivoIndisponivel } from "../src/rotinas/agenda.js";
-import { valorEmReais, cobrancaAtivada, estruturaAtiva } from "../src/dados.js";
+import { valorEmReais, lerValor, cobrancaAtivada, estruturaAtiva } from "../src/dados.js";
 import { paraParametro } from "../src/avisos.js";
 import { extrairMensagens } from "../src/whatsapp.js";
 
@@ -33,16 +33,52 @@ test("régua de cobrança", () => {
   assert.deepEqual(lerEtapas(""), []);
   assert.deepEqual(lerEtapas(" -3, 0 "), [-3, 0]);
   assert.deepEqual(lerEtapas("-3 0 1"), [-3, 0, 1]);
-  const base = { status: "pendente", vencimento: "2026-11-20", avisos_enviados: "", ultimo_aviso: "" };
+  const base = { vencimento: "2026-11-20", enviadas: [], ultimoAviso: "" };
   assert.equal(etapaDeHoje(base, etapas, "2026-11-16"), null);      // D-4: nada
   assert.equal(etapaDeHoje(base, etapas, "2026-11-17"), -3);        // D-3
-  assert.equal(etapaDeHoje({ ...base, avisos_enviados: "-3" }, etapas, "2026-11-18"), null);
-  assert.equal(etapaDeHoje({ ...base, avisos_enviados: "-3" }, etapas, "2026-11-20"), 0);
-  // servidor ficou fora no D+1 e D+2: no D+2 manda só a etapa 1 (a mais recente), não várias
-  assert.equal(etapaDeHoje({ ...base, avisos_enviados: "-3,0" }, etapas, "2026-11-22"), 1);
-  assert.equal(etapaDeHoje({ ...base, avisos_enviados: "-3,0,1,3,7" }, etapas, "2026-12-30"), null);
-  assert.equal(etapaDeHoje({ ...base, status: "pago" }, etapas, "2026-11-20"), null);
-  assert.equal(etapaDeHoje({ ...base, ultimo_aviso: "2026-11-20" }, etapas, "2026-11-20"), null);
+  assert.equal(etapaDeHoje({ ...base, enviadas: [-3] }, etapas, "2026-11-18"), null);
+  assert.equal(etapaDeHoje({ ...base, enviadas: [-3] }, etapas, "2026-11-20"), 0);
+  // servidor ficou fora no D+1 e D+2: no D+2 manda só a etapa 1, não várias
+  assert.equal(etapaDeHoje({ ...base, enviadas: [-3, 0] }, etapas, "2026-11-22"), 1);
+  assert.equal(etapaDeHoje({ ...base, enviadas: [-3, 0, 1, 3, 7] }, etapas, "2026-12-30"), null);
+  assert.equal(etapaDeHoje({ ...base, ultimoAviso: "2026-11-20" }, etapas, "2026-11-20"), null);
+});
+
+test("meses e vencimentos", () => {
+  assert.deepEqual(lerMes("10/2026"), { ano: 2026, mes: 10 });
+  assert.deepEqual(lerMes("10/26"), { ano: 2026, mes: 10 });
+  assert.deepEqual(lerMes("2026-10"), { ano: 2026, mes: 10 });
+  assert.deepEqual(lerMes("01/10/2026"), { ano: 2026, mes: 10 });
+  assert.deepEqual(lerMes("Out/2026"), { ano: 2026, mes: 10 });
+  assert.deepEqual(lerMes("março de 2027"), { ano: 2027, mes: 3 });
+  assert.equal(lerMes(""), null);
+  assert.equal(lerMes("13/2026"), null);
+  assert.equal(vencimentoDoMes({ ano: 2027, mes: 2 }, 31), "2027-02-28");
+  assert.equal(vencimentoDoMes({ ano: 2026, mes: 11 }, 10), "2026-11-10");
+});
+
+test("mensalidade: mês em aberto é o seguinte ao pago_ate", () => {
+  const cli = { nome: "CASA PORTO", cobranca_automatica: "sim", valor: "R$ 3.500,00", dia_vencimento: "10", pago_ate: "10/2026" };
+  const s = situacaoMensalidade(cli, "2026-11-07");
+  assert.deepEqual(s.mes, { ano: 2026, mes: 11 });
+  assert.equal(s.vencimento, "2026-11-10");
+  assert.deepEqual(s.enviadas, []);
+  // avisos de outro mês não contam
+  assert.deepEqual(situacaoMensalidade({ ...cli, aviso_mes: "10/2026", avisos_enviados: "-3 0" }, "2026-11-07").enviadas, []);
+  assert.deepEqual(situacaoMensalidade({ ...cli, aviso_mes: "11/2026", avisos_enviados: "-3 0" }, "2026-11-07").enviadas, [-3, 0]);
+  // pagou adiantado: pago_ate 12/2026 -> próximo vencimento em janeiro
+  assert.equal(situacaoMensalidade({ ...cli, pago_ate: "12/2026" }, "2026-11-07").vencimento, "2027-01-10");
+  // dados faltando
+  assert.equal(situacaoMensalidade({ ...cli, cobranca_automatica: "não" }, "2026-11-07").motivo, "desativada");
+  assert.equal(situacaoMensalidade({ ...cli, valor: "R$ -" }, "2026-11-07").motivo, "sem valor");
+  assert.equal(situacaoMensalidade({ ...cli, dia_vencimento: "" }, "2026-11-07").motivo, "sem dia de vencimento");
+  assert.equal(situacaoMensalidade({ ...cli, pago_ate: "" }, "2026-11-07").motivo, "sem pago_ate");
+});
+
+test("nome na mensagem", () => {
+  assert.equal(nomeNaMensagem("CASA PORTO"), "Casa Porto");
+  assert.equal(nomeNaMensagem("DR. LUIZ"), "Dr. Luiz");
+  assert.equal(nomeNaMensagem("Ana Souza"), "Ana");
 });
 
 test("acompanhamento", () => {
@@ -75,6 +111,9 @@ test("agenda: horários livres respeitam almoço, ocupados e antecedência", () 
 test("formatações", () => {
   assert.equal(valorEmReais("1500"), "1.500,00");
   assert.equal(valorEmReais("R$ 1.234,5"), "1.234,50");
+  assert.equal(lerValor("R$ 27.000,00"), 27000);
+  assert.equal(lerValor("3.500"), 3500);
+  assert.ok(Number.isNaN(lerValor("R$ -")));
   assert.equal(paraParametro("linha 1\nlinha 2     fim"), "linha 1 | linha 2   fim");
 });
 
@@ -96,5 +135,7 @@ test("liga/desliga de cobrança por cliente", () => {
 });
 
 test("planilha só com as abas das funções ligadas", () => {
-  assert.deepEqual(Object.keys(estruturaAtiva(["cobrancas"])), ["Clientes", "Cobrancas", "Config", "Conversas"]);
+  assert.deepEqual(Object.keys(estruturaAtiva(["cobrancas"])), ["Clientes", "Config", "Conversas"]);
+  assert.ok(!estruturaAtiva(["cobrancas"]).Clientes.includes("id"));
+  assert.ok(estruturaAtiva(["cobrancas", "ia"]).Clientes.includes("id"));
 });

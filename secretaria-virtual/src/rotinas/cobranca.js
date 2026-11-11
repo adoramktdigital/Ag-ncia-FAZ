@@ -1,5 +1,9 @@
-// Régua de cobrança: envia lembretes antes, no dia e depois do vencimento.
-import { listarCobrancas, listarClientes, atualizarCobranca, lerConfig, valorEmReais, registrarConversa, cobrancaAtivada } from "../dados.js";
+// Cobrança de mensalidades (clientes de recorrência), direto da aba Clientes.
+//
+// Cada cliente tem: valor, dia_vencimento e pago_ate (último mês pago, ex.: 10/2026).
+// O mês cobrado é sempre o mês seguinte ao pago_ate. Quando você atualiza o pago_ate,
+// os lembretes daquele mês param e a régua recomeça no mês seguinte.
+import { listarClientes, atualizarCliente, lerConfig, valorEmReais, lerValor, registrarConversa, cobrancaAtivada } from "../dados.js";
 import { enviarTemplate } from "../whatsapp.js";
 import { avisarEquipe, paraParametro } from "../avisos.js";
 import { TEMPLATES, IDIOMA_TEMPLATES } from "../templates.js";
@@ -15,27 +19,98 @@ export function lerEtapas(texto) {
     .sort((a, b) => a - b);
 }
 
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+
 /**
- * Decide qual etapa da régua deve ser enviada hoje para uma cobrança.
- * Envia a etapa mais recente que já chegou e ainda não foi enviada — assim,
- * se o servidor ficar fora do ar um dia, a cobrança não é perdida, mas também
- * não manda várias mensagens atrasadas de uma vez.
- * Retorna o número da etapa (ex.: -3, 0, 1) ou null.
+ * Lê um mês escrito de vários jeitos: "10/2026", "10/26", "2026-10", "01/10/2026",
+ * "out/2026", "outubro de 2026". Retorna { ano, mes } ou null.
  */
-export function etapaDeHoje(cobranca, etapas, dataHoje) {
-  if (cobranca.status !== "pendente" || !cobranca.vencimento) return null;
-  const diasDepois = diasEntre(cobranca.vencimento, dataHoje); // negativo = ainda não venceu
-  const enviadas = new Set(lerEtapas(cobranca.avisos_enviados));
+export function lerMes(valor) {
+  const t = String(valor ?? "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  if (!t) return null;
+  let m = t.match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+  if (m) return validar(Number(m[1]), Number(m[2]));
+  m = t.match(/^\d{1,2}\/(\d{1,2})\/(\d{4})$/); // data completa dd/mm/aaaa
+  if (m) return validar(Number(m[2]), Number(m[1]));
+  m = t.match(/^(\d{1,2})\s*[/\-.]\s*(\d{2}|\d{4})$/);
+  if (m) return validar(Number(m[2].length === 2 ? "20" + m[2] : m[2]), Number(m[1]));
+  m = t.match(/^([a-z]{3,})\.?\s*(?:\/|-|de)?\s*(\d{2}|\d{4})$/);
+  if (m) {
+    const i = MESES.findIndex((nome) => nome.normalize("NFD").replace(/[̀-ͯ]/g, "").startsWith(m[1].slice(0, 3)));
+    if (i >= 0) return validar(Number(m[2].length === 2 ? "20" + m[2] : m[2]), i + 1);
+  }
+  return null;
+}
+
+function validar(ano, mes) {
+  return mes >= 1 && mes <= 12 && ano >= 2000 && ano <= 2100 ? { ano, mes } : null;
+}
+
+export function proximoMes({ ano, mes }) {
+  return mes === 12 ? { ano: ano + 1, mes: 1 } : { ano, mes: mes + 1 };
+}
+
+/** { ano: 2026, mes: 11 } -> "11/2026" */
+export function mesTexto({ ano, mes }) {
+  return `${String(mes).padStart(2, "0")}/${ano}`;
+}
+
+/** { ano: 2026, mes: 11 } -> "novembro/2026" */
+export function mesPorExtenso({ ano, mes }) {
+  return `${MESES[mes - 1]}/${ano}`;
+}
+
+/** Data de vencimento do mês; dia 31 em mês curto vira o último dia do mês. */
+export function vencimentoDoMes({ ano, mes }, dia) {
+  const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+  const d = Math.min(Math.max(Number(dia) || 1, 1), ultimoDia);
+  return `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/**
+ * Decide a etapa da régua a enviar hoje para um vencimento.
+ * Envia a etapa mais recente que já chegou e ainda não foi enviada. Assim, se o servidor
+ * ficar fora do ar um dia, a cobrança não se perde, mas também não saem várias mensagens
+ * atrasadas de uma vez. No máximo uma mensagem por dia.
+ */
+export function etapaDeHoje({ vencimento, enviadas, ultimoAviso }, etapas, dataHoje) {
+  const diasDepois = diasEntre(vencimento, dataHoje); // negativo = ainda não venceu
   const vencidas = etapas.filter((e) => e <= diasDepois);
   if (!vencidas.length) return null;
   const etapa = vencidas[vencidas.length - 1];
-  if (enviadas.has(etapa)) return null;
-  if (cobranca.ultimo_aviso === dataHoje) return null; // no máximo uma mensagem por dia
+  if (enviadas.includes(etapa)) return null;
+  if (ultimoAviso === dataHoje) return null;
   return etapa;
 }
 
-function comoPagar(cobranca, cfg) {
-  if (cobranca.link_pagamento) return cobranca.link_pagamento;
+/**
+ * Situação da mensalidade de um cliente hoje.
+ * Retorna { motivo } quando não dá para cobrar, ou os dados do mês em aberto.
+ */
+export function situacaoMensalidade(cliente, dataHoje) {
+  if (!cobrancaAtivada(cliente)) return { motivo: "desativada" };
+  const valor = lerValor(cliente.valor);
+  if (!Number.isFinite(valor) || valor <= 0) return { motivo: "sem valor" };
+  const dia = Number(String(cliente.dia_vencimento ?? "").trim());
+  if (!Number.isInteger(dia) || dia < 1 || dia > 31) return { motivo: "sem dia de vencimento" };
+  const pago = lerMes(cliente.pago_ate);
+  if (!pago) return { motivo: "sem pago_ate" };
+
+  const mes = proximoMes(pago);
+  const vencimento = vencimentoDoMes(mes, dia);
+  const mesDosAvisos = lerMes(cliente.aviso_mes);
+  const mesmoMes = mesDosAvisos && mesTexto(mesDosAvisos) === mesTexto(mes);
+  return {
+    mes,
+    vencimento,
+    diasDepoisDoVencimento: diasEntre(vencimento, dataHoje),
+    enviadas: mesmoMes ? lerEtapas(cliente.avisos_enviados) : [],
+    ultimoAviso: String(cliente.ultimo_aviso || "").slice(0, 10),
+  };
+}
+
+function comoPagar(cliente, cfg) {
+  if (cliente.link_pagamento) return cliente.link_pagamento;
   if (cfg.chave_pix) return `PIX: ${cfg.chave_pix}`;
   return "responda esta mensagem que enviamos os dados de pagamento";
 }
@@ -43,58 +118,73 @@ function comoPagar(cobranca, cfg) {
 export async function executarCobrancas({ agora = new Date() } = {}) {
   const cfg = await lerConfig();
   const etapas = lerEtapas(cfg.cobranca_etapas);
-  const dataHoje = hoje(agora);
-  const [cobrancas, clientes] = await Promise.all([listarCobrancas(), listarClientes()]);
   const ultimaEtapa = etapas[etapas.length - 1];
-  const resultado = { enviadas: 0, erros: 0, desativadas: 0 };
+  const dataHoje = hoje(agora);
+  const clientes = await listarClientes();
+  const resultado = { enviadas: 0, erros: 0, desativadas: 0, incompletos: [] };
 
-  for (const cobranca of cobrancas) {
-    const etapa = etapaDeHoje(cobranca, etapas, dataHoje);
+  for (const cliente of clientes) {
+    const sit = situacaoMensalidade(cliente, dataHoje);
+    if (sit.motivo === "desativada") { resultado.desativadas++; continue; }
+    if (sit.motivo) {
+      resultado.incompletos.push(`${cliente.nome || "(sem nome)"}: ${sit.motivo}`);
+      continue;
+    }
+    const etapa = etapaDeHoje(sit, etapas, dataHoje);
     if (etapa === null) continue;
 
-    const cliente = clientes.find((c) => String(c.id) === String(cobranca.cliente_id));
-    if (!cliente) {
-      console.warn(`Cobrança ${cobranca.id}: cliente ${cobranca.cliente_id} não encontrado na aba Clientes.`);
-      continue;
-    }
-    if (!cobrancaAtivada(cliente)) {
-      resultado.desativadas++;
-      continue;
-    }
     const telefone = normalizarTelefone(cliente.telefone);
     if (!telefone) {
-      console.warn(`Cobrança ${cobranca.id}: cliente ${cobranca.cliente_id} sem telefone.`);
+      resultado.incompletos.push(`${cliente.nome}: sem telefone`);
       continue;
     }
 
     const template = etapa < 0 ? TEMPLATES.cobrancaAntes : etapa === 0 ? TEMPLATES.cobrancaHoje : TEMPLATES.cobrancaAtraso;
-    const primeiroNome = String(cliente.nome || "").split(" ")[0] || "tudo bem";
     const parametros = [
-      primeiroNome,
-      paraParametro(cobranca.descricao || "serviços"),
-      valorEmReais(cobranca.valor),
-      dataBR(cobranca.vencimento),
-      paraParametro(comoPagar(cobranca, cfg)),
+      nomeNaMensagem(cliente.nome),
+      paraParametro(`${cliente.descricao || "mensalidade"} (${mesPorExtenso(sit.mes)})`),
+      valorEmReais(cliente.valor),
+      dataBR(sit.vencimento),
+      paraParametro(comoPagar(cliente, cfg)),
     ];
 
     try {
       await enviarTemplate(telefone, template, IDIOMA_TEMPLATES, parametros);
-      const enviadas = [...lerEtapas(cobranca.avisos_enviados), etapa];
-      // Separado por espaço: em planilhas em português, "-3,0" viraria o número -3.
-      await atualizarCobranca(cobranca, { avisos_enviados: enviadas.join(" "), ultimo_aviso: dataHoje });
+      await atualizarCliente(cliente, {
+        aviso_mes: mesTexto(sit.mes),
+        avisos_enviados: [...sit.enviadas, etapa].join(" "),
+        ultimo_aviso: dataHoje,
+      });
       await registrarConversa(telefone, cliente.nome, "saida", `[template ${template}] ${parametros.join(" | ")}`);
       resultado.enviadas++;
 
       if (etapa === ultimaEtapa && etapa > 0) {
         await avisarEquipe(
-          `Cobrança ${cobranca.id} de ${cliente.nome} (R$ ${valorEmReais(cobranca.valor)}, venceu em ${dataBR(cobranca.vencimento)}) ` +
+          `A mensalidade de ${mesPorExtenso(sit.mes)} de ${cliente.nome} (R$ ${valorEmReais(cliente.valor)}, venceu em ${dataBR(sit.vencimento)}) ` +
           `já recebeu todos os lembretes automáticos e continua em aberto. Vale um contato pessoal.`,
         );
       }
     } catch (e) {
       resultado.erros++;
-      console.error(`Erro ao cobrar ${cobranca.id}:`, e.message);
+      console.error(`Erro ao cobrar ${cliente.nome}:`, e.message);
     }
   }
+
+  if (resultado.incompletos.length) {
+    console.warn("[Cobrança] clientes com cobrança ligada mas dados incompletos:", resultado.incompletos.join("; "));
+  }
   return resultado;
+}
+
+/**
+ * Nome usado no "Olá, ...!". Nomes em maiúsculas costumam ser de empresas
+ * ("CASA PORTO" vira "Casa Porto"); nomes normais usam só o primeiro nome.
+ */
+export function nomeNaMensagem(nome) {
+  const t = String(nome || "").trim().replace(/\s+/g, " ");
+  if (!t) return "tudo bem";
+  if (t === t.toUpperCase()) {
+    return t.toLowerCase().replace(/(^|\s)(\S)/g, (_, esp, letra) => esp + letra.toUpperCase());
+  }
+  return t.split(" ")[0];
 }

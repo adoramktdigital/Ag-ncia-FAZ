@@ -2,7 +2,7 @@
 // os cabeçalhos, os menus de opções e as configurações padrão.
 // Uso: npm run setup-planilha
 import { garantirAbas, lerTabela, adicionarLinha, aplicarListas } from "../src/planilha.js";
-import { estruturaAtiva, CONFIG_PADRAO, LISTAS } from "../src/dados.js";
+import { estruturaAtiva, CONFIG_PADRAO, LISTAS, FORMATOS } from "../src/dados.js";
 import { config } from "../src/config.js";
 
 const estrutura = estruturaAtiva();
@@ -11,7 +11,7 @@ console.log(`Funções ligadas: ${config.modulos.join(", ")}`);
 console.log(novas.length ? `Abas criadas: ${novas.join(", ")}` : "Todas as abas já existiam.");
 
 for (const aba of Object.keys(estrutura)) {
-  if (LISTAS[aba]) await aplicarListas(aba, LISTAS[aba]);
+  await aplicarListas(aba, LISTAS[aba], FORMATOS[aba]);
 }
 
 // Configurações de cada função só aparecem se a função estiver ligada.
