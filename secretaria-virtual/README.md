@@ -18,9 +18,41 @@ Cliente no WhatsApp ──► Meta (WhatsApp Cloud API) ──► este servidor 
 
 ---
 
+## Comece por aqui: só a cobrança
+
+O sistema vem configurado para começar **só com a cobrança automática** (`MODULOS=cobrancas`), sem IA:
+
+1. Na aba **Clientes**, cadastre cada cliente e escolha, na coluna **`cobranca_automatica`**, se ele recebe cobrança:
+   - `sim`: recebe os lembretes.
+   - `não` ou em branco: **nunca** recebe mensagem. Use para quem sempre paga em dia.
+2. Na aba **Cobrancas**, lance cada fatura: `cliente_id`, `descricao`, `valor`, `vencimento`, `status = pendente` e, se tiver, o `link_pagamento`. Sem link, a mensagem leva a `chave_pix` da aba Config.
+3. Todo dia, de segunda a sábado, às 9h30, o sistema manda os lembretes na régua da aba Config (padrão: 3 dias antes, no dia, e 1, 3 e 7 dias depois). Quando o cliente pagar, mude o `status` para `pago` e os lembretes param.
+4. **Quando o cliente responder**, ninguém responde automaticamente. Você responde pessoalmente:
+   - Se o número da empresa continua no app **WhatsApp Business** do celular (modo coexistência), as respostas aparecem lá normalmente. Coloque `encaminhar_respostas = não` na aba Config.
+   - Se o número ficou só na API, deixe `encaminhar_respostas = sim`. Cada resposta de cliente chega no seu WhatsApp (`telefone_humano`), e você responde mandando para o número da empresa: `#r 5511988887777 Oi, Bruno! Obrigado, vou conferir.`
+
+**Exemplo:**
+
+| Clientes | id | nome | telefone | cobranca_automatica |
+|---|---|---|---|---|
+| | C001 | Ana Souza | 11 98765-4321 | sim |
+| | C002 | Bruno Lima | 11 91111-2222 | não |
+
+| Cobrancas | id | cliente_id | descricao | valor | vencimento | status | link_pagamento |
+|---|---|---|---|---|---|---|---|
+| | F001 | C001 | Gestão de redes – novembro | 1500 | 20/11/2026 | pendente | |
+
+Nesse exemplo, a Ana recebe lembretes em 17/11, 20/11, 21/11, 23/11 e 27/11, até a fatura virar `pago`. O Bruno nunca recebe.
+
+**O que você precisa para essa primeira etapa:** os passos 1, 2, 3 e 5 abaixo. A chave do Claude (passo 4) não é necessária. Dos templates, crie só estes 4: `cobranca_lembrete`, `cobranca_vencimento_hoje`, `cobranca_em_atraso` e `aviso_equipe`.
+
+Quando quiser ligar as outras funções, mude a variável `MODULOS` (ex.: `MODULOS=cobrancas,acompanhamentos,agenda,ia`) e rode `npm run setup-planilha` de novo. As abas que faltarem são criadas.
+
+---
+
 ## Passo a passo de instalação
 
-Você vai precisar de 4 coisas: **(1)** WhatsApp Cloud API, **(2)** templates de mensagem aprovados, **(3)** a planilha do Google com uma conta de serviço e **(4)** uma chave da API do Claude. Depois disso, é colocar o servidor no ar.
+Você vai precisar de: **(1)** WhatsApp Cloud API, **(2)** templates de mensagem aprovados, **(3)** a planilha do Google com uma conta de serviço e **(4)** uma chave da API do Claude, mas esta só quando ligar a IA. Depois disso, é colocar o servidor no ar.
 
 ### 1. WhatsApp Cloud API (Meta)
 
@@ -69,7 +101,7 @@ O `aviso_equipe` serve para a secretária avisar **você** (cobranças esgotadas
 5. Coloque o conteúdo do JSON em `GOOGLE_SERVICE_ACCOUNT_JSON`. Pode ser o JSON numa linha só ou em base64 (`base64 -w0 arquivo.json`).
 6. Rode `npm run setup-planilha` (passo 5). Ele cria todas as abas e colunas.
 
-### 4. Chave da API do Claude
+### 4. Chave da API do Claude (só com a função `ia` ligada)
 
 Acesse console.anthropic.com, vá em **API Keys > Create Key** e coloque a chave em `ANTHROPIC_API_KEY`. Adicione créditos em **Billing**.
 
@@ -93,7 +125,7 @@ O servidor precisa ficar **ligado 24h** e ter um endereço **HTTPS público**. A
    - **URL de callback:** `https://SEU-ENDERECO.onrender.com/webhook`
    - **Token de verificação:** o mesmo valor de `WHATSAPP_VERIFY_TOKEN`
    - Clique em **Verificar e salvar** e, em **Campos do webhook**, assine **messages**.
-6. Mande um "oi" para o número da empresa. A secretária deve responder 🎉
+6. Teste: cadastre você mesmo como cliente com `cobranca_automatica = sim`, lance uma cobrança vencendo hoje e mande `#rotinas` do seu WhatsApp. A cobrança deve chegar em seguida 🎉
 
 **Rodando no seu computador (para testar):**
 
@@ -115,7 +147,7 @@ Para a Meta enxergar seu computador, use um túnel como `ngrok http 3000` e conf
 
 | Aba | Para que serve | Colunas importantes |
 |---|---|---|
-| **Clientes** | Cadastro de clientes. Contatos novos que falam com a secretária entram aqui como `lead`. | `id` (qualquer código único, ex.: C001), `nome`, `telefone` (com DDD, ex.: 11 98765-4321) |
+| **Clientes** | Cadastro de clientes. Com a IA ligada, contatos novos entram aqui como `lead`. | `id` (qualquer código único, ex.: C001), `nome`, `telefone` (com DDD, ex.: 11 98765-4321), `cobranca_automatica` (`sim` ou `não`) |
 | **Cobrancas** | Uma linha por fatura. | `id`, `cliente_id`, `descricao`, `valor`, `vencimento` (DD/MM/AAAA), `status`, `link_pagamento` |
 | **Acompanhamentos** | Materiais aguardando aprovação, entregas e retornos. | `id`, `cliente_id`, `tipo` (`aprovacao`, `entrega` ou `retorno`), `descricao`, `link`, `status` |
 | **Agenda** | Compromissos. A secretária marca aqui, e você também pode lançar à mão para bloquear horários. | `inicio` (DD/MM/AAAA HH:mm), `duracao_min`, `status` |
@@ -154,9 +186,10 @@ Se preferir disparar por um agendador externo (por exemplo cron-job.org), use `R
 
 Do número cadastrado em `telefone_humano`, mande para o número da empresa:
 
-- `#humano 5511988887777`: a secretária para de responder esse cliente, e você assume.
-- `#bot 5511988887777`: a secretária volta a atender esse cliente.
-- `#rotinas`: dispara as cobranças, os acompanhamentos e os lembretes agora.
+- `#r 5511988887777 sua mensagem`: responde o cliente pelo número da empresa. Funciona até 24h depois da última mensagem dele, que é a regra da Meta.
+- `#humano 5511988887777`: (com a IA ligada) a secretária para de responder esse cliente, e você assume.
+- `#bot 5511988887777`: (com a IA ligada) a secretária volta a atender esse cliente.
+- `#rotinas`: faz agora os envios do dia. Útil para testar; não repete mensagem que já saiu no dia.
 
 Também dá para mudar a coluna `modo` na aba **Atendimento** direto na planilha.
 

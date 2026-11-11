@@ -39,6 +39,17 @@ export const config = {
     },
   },
 
+  /**
+   * Funções ligadas. Comece só com "cobrancas" e vá ligando as outras quando quiser:
+   * cobrancas, acompanhamentos, agenda, ia
+   */
+  get modulos() {
+    return (process.env.MODULOS || "cobrancas").split(",").map((m) => m.trim().toLowerCase()).filter(Boolean);
+  },
+  ligado(modulo) {
+    return this.modulos.includes(modulo);
+  },
+
   rotinas: {
     ativas: process.env.ROTINAS_ATIVAS !== "false",
     token: process.env.ROTINAS_TOKEN || "",

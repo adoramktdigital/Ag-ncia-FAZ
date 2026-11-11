@@ -1,5 +1,5 @@
 // Régua de cobrança: envia lembretes antes, no dia e depois do vencimento.
-import { listarCobrancas, listarClientes, atualizarCobranca, lerConfig, valorEmReais, registrarConversa } from "../dados.js";
+import { listarCobrancas, listarClientes, atualizarCobranca, lerConfig, valorEmReais, registrarConversa, cobrancaAtivada } from "../dados.js";
 import { enviarTemplate } from "../whatsapp.js";
 import { avisarEquipe, paraParametro } from "../avisos.js";
 import { TEMPLATES, IDIOMA_TEMPLATES } from "../templates.js";
@@ -46,14 +46,22 @@ export async function executarCobrancas({ agora = new Date() } = {}) {
   const dataHoje = hoje(agora);
   const [cobrancas, clientes] = await Promise.all([listarCobrancas(), listarClientes()]);
   const ultimaEtapa = etapas[etapas.length - 1];
-  const resultado = { enviadas: 0, erros: 0 };
+  const resultado = { enviadas: 0, erros: 0, desativadas: 0 };
 
   for (const cobranca of cobrancas) {
     const etapa = etapaDeHoje(cobranca, etapas, dataHoje);
     if (etapa === null) continue;
 
     const cliente = clientes.find((c) => String(c.id) === String(cobranca.cliente_id));
-    const telefone = normalizarTelefone(cliente?.telefone);
+    if (!cliente) {
+      console.warn(`Cobrança ${cobranca.id}: cliente ${cobranca.cliente_id} não encontrado na aba Clientes.`);
+      continue;
+    }
+    if (!cobrancaAtivada(cliente)) {
+      resultado.desativadas++;
+      continue;
+    }
+    const telefone = normalizarTelefone(cliente.telefone);
     if (!telefone) {
       console.warn(`Cobrança ${cobranca.id}: cliente ${cobranca.cliente_id} sem telefone.`);
       continue;

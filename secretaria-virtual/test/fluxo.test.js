@@ -7,8 +7,16 @@ import { hoje, somarDias } from "../src/util/datas.js";
 
 // ---- planilha em memória ----
 const abas = {
-  Clientes: [{ id: "C1", nome: "Ana Souza", telefone: "(11) 98765-4321", status: "ativo" }],
-  Cobrancas: [{ id: "K1", cliente_id: "C1", descricao: "Gestão de redes - nov", valor: "1500", vencimento: somarDias(hoje(), 3), status: "pendente", avisos_enviados: "", ultimo_aviso: "" }],
+  Clientes: [
+    { id: "C1", nome: "Ana Souza", telefone: "(11) 98765-4321", cobranca_automatica: "sim", status: "ativo" },
+    { id: "C2", nome: "Bruno Lima", telefone: "(11) 91111-2222", cobranca_automatica: "não", status: "ativo" },
+    { id: "C3", nome: "Carla Dias", telefone: "(11) 93333-4444", cobranca_automatica: "", status: "ativo" },
+  ],
+  Cobrancas: [
+    { id: "K1", cliente_id: "C1", descricao: "Gestão de redes - nov", valor: "1500", vencimento: somarDias(hoje(), 3), status: "pendente", avisos_enviados: "", ultimo_aviso: "" },
+    { id: "K2", cliente_id: "C2", descricao: "Site", valor: "800", vencimento: hoje(), status: "pendente", avisos_enviados: "", ultimo_aviso: "" },
+    { id: "K3", cliente_id: "C3", descricao: "Logo", valor: "500", vencimento: hoje(), status: "pendente", avisos_enviados: "", ultimo_aviso: "" },
+  ],
   Acompanhamentos: [{ id: "P1", cliente_id: "C1", tipo: "aprovacao", descricao: "Posts de dezembro", link: "https://exemplo.com/posts", status: "aguardando", proximo_contato: "", tentativas: "" }],
   Agenda: [], Config: [{ chave: "telefone_humano", valor: "5511900000000" }], Atendimento: [], Conversas: [],
 };
@@ -23,6 +31,7 @@ mock.module("../src/planilha.js", { namedExports: {
 // ---- WhatsApp: captura o que seria enviado ----
 const enviados = [];
 process.env.WHATSAPP_DRY_RUN = "true";
+process.env.MODULOS = "cobrancas,acompanhamentos,agenda,ia";
 process.env.WHATSAPP_PHONE_NUMBER_ID = "1"; process.env.WHATSAPP_TOKEN = "x"; process.env.WHATSAPP_VERIFY_TOKEN = "x";
 const logOriginal = console.log;
 console.log = (...a) => { if (String(a[0]).includes("[WhatsApp simulação]")) enviados.push(JSON.parse(a[1])); };
@@ -59,7 +68,9 @@ const { executarRotinas } = await import("../src/rotinas/index.js");
 test("rotinas enviam cobrança D-3 e pedido de aprovação", async () => {
   enviados.length = 0;
   const r = await executarRotinas(["cobrancas", "acompanhamentos"]);
-  assert.equal(r.cobrancas.enviadas, 1);
+  assert.equal(r.cobrancas.enviadas, 1); // só a Ana: Bruno está "não" e Carla está em branco
+  assert.equal(r.cobrancas.desativadas, 2);
+  assert.ok(!enviados.some((e) => e.to === "5511911112222" || e.to === "5511933334444"));
   assert.equal(r.acompanhamentos.enviadas, 1);
   const nomes = enviados.map((e) => e.template?.name);
   assert.ok(nomes.includes("acompanhamento_aprovacao"));
@@ -95,6 +106,25 @@ test("contato em atendimento humano não recebe resposta da IA", async () => {
   await new Promise((r) => setTimeout(r, 4500));
   assert.equal(pedidos.length, antes);
   assert.equal(enviados.length, 0);
+});
+
+test("modo simples (sem IA): resposta do cliente é encaminhada e #r responde", async () => {
+  process.env.MODULOS = "cobrancas";
+  enviados.length = 0;
+  const antes = pedidos.length;
+  receberMensagem({ id: "w3", de: "5511911112222", nome: "Bruno", tipo: "text", texto: "Já paguei ontem" });
+  await new Promise((r) => setTimeout(r, 4500));
+  assert.equal(pedidos.length, antes); // a IA não foi chamada
+  const aviso = enviados.find((e) => e.template?.name === "aviso_equipe");
+  assert.match(aviso.template.components[0].parameters[0].text, /Bruno \(5511911112222\): "Já paguei ontem".*#r 5511911112222/);
+  assert.ok(!enviados.some((e) => e.status === "read")); // continua "não lida" para você
+
+  enviados.length = 0;
+  receberMensagem({ id: "w4", de: "5511900000000", nome: "Dono", tipo: "text", texto: "#r 5511911112222 Obrigado, Bruno! Vou conferir." });
+  await new Promise((r) => setTimeout(r, 4500));
+  const resposta = enviados.find((e) => e.type === "text" && e.to === "5511911112222");
+  assert.equal(resposta.text.body, "Obrigado, Bruno! Vou conferir.");
+  assert.ok(enviados.some((e) => e.type === "text" && e.to === "5511900000000" && /Enviado/.test(e.text.body)));
 });
 
 after(() => {

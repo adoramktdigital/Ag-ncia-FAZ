@@ -5,7 +5,7 @@ import { diasEntre, somarDias, normalizarData, normalizarDataHora, paraDate, hoj
 import { etapaDeHoje, lerEtapas } from "../src/rotinas/cobranca.js";
 import { precisaContato } from "../src/rotinas/acompanhamento.js";
 import { regrasDaAgenda, horariosLivres, motivoIndisponivel } from "../src/rotinas/agenda.js";
-import { valorEmReais } from "../src/dados.js";
+import { valorEmReais, cobrancaAtivada, estruturaAtiva } from "../src/dados.js";
 import { paraParametro } from "../src/avisos.js";
 import { extrairMensagens } from "../src/whatsapp.js";
 
@@ -84,4 +84,16 @@ test("webhook: extrai mensagens", () => {
   } }] }] };
   const [m] = extrairMensagens(payload);
   assert.deepEqual({ id: m.id, de: m.de, nome: m.nome, texto: m.texto }, { id: "wamid.1", de: "5511987654321", nome: "Ana", texto: "Oi!" });
+});
+
+test("liga/desliga de cobrança por cliente", () => {
+  assert.ok(cobrancaAtivada({ cobranca_automatica: "sim" }));
+  assert.ok(cobrancaAtivada({ cobranca_automatica: " Sim " }));
+  assert.ok(!cobrancaAtivada({ cobranca_automatica: "não" }));
+  assert.ok(!cobrancaAtivada({ cobranca_automatica: "nao" }));
+  assert.ok(!cobrancaAtivada({ cobranca_automatica: "" })); // em branco não cobra
+});
+
+test("planilha só com as abas das funções ligadas", () => {
+  assert.deepEqual(Object.keys(estruturaAtiva(["cobrancas"])), ["Clientes", "Cobrancas", "Config", "Conversas"]);
 });

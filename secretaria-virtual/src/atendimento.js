@@ -5,6 +5,7 @@ import { responder, encerrarConversa } from "./ia/agente.js";
 import { lerConfig, modoAtendimento, definirModoAtendimento, registrarConversa } from "./dados.js";
 import { avisarEquipe } from "./avisos.js";
 import { mesmoTelefone, normalizarTelefone } from "./util/telefone.js";
+import { config } from "./config.js";
 import { executarRotinas } from "./rotinas/index.js";
 
 // A Meta pode reenviar o mesmo webhook; guardamos os IDs já vistos.
@@ -60,6 +61,8 @@ async function tratar(telefone, nome, texto, ultimoId) {
     return comandoDaEquipe(telefone, texto.trim());
   }
 
+  if (!config.ligado("ia")) return encaminharParaEquipe(telefone, nome, texto, cfg);
+
   const { modo } = await modoAtendimento(telefone);
   if (modo === "humano") {
     // Não marca como lida: a mensagem continua como "não lida" para a equipe.
@@ -88,6 +91,16 @@ async function tratar(telefone, nome, texto, ultimoId) {
   if (resposta.texto) await enviar(telefone, nome, resposta.texto);
 }
 
+/**
+ * Sem IA: ninguém responde automaticamente. A mensagem fica como "não lida" e,
+ * se encaminhar_respostas = sim, vai para o seu WhatsApp com o jeito de responder.
+ */
+async function encaminharParaEquipe(telefone, nome, texto, cfg) {
+  if (mesmoTelefone(telefone, cfg.telefone_humano)) return;
+  if (!["sim", "s"].includes(String(cfg.encaminhar_respostas || "").trim().toLowerCase())) return;
+  await avisarEquipe(`Mensagem de ${nome || "cliente"} (${telefone}): "${texto}". Para responder pelo número da empresa, mande: #r ${telefone} sua resposta`);
+}
+
 async function enviar(telefone, nome, texto) {
   // Limite do WhatsApp: 4096 caracteres por mensagem.
   for (let i = 0; i < texto.length; i += 4000) {
@@ -100,14 +113,26 @@ async function enviar(telefone, nome, texto) {
  * Comandos que o responsável (telefone_humano) pode mandar para o número da empresa:
  *   #bot 5511999999999     -> a secretária volta a responder esse contato
  *   #humano 5511999999999  -> a secretária para de responder esse contato
+ *   #r 5511999999999 texto -> responde o cliente pelo número da empresa (até 24h depois da mensagem dele)
  *   #rotinas               -> roda cobranças, acompanhamentos e lembretes agora
  *   #ajuda                 -> lista os comandos
  */
 async function comandoDaEquipe(telefone, texto) {
-  const [comando, alvoBruto] = texto.split(/\s+/, 2);
+  const [comando, alvoBruto, ...resto] = texto.split(/\s+/);
   const alvo = normalizarTelefone(alvoBruto);
   let resposta;
   switch (comando.toLowerCase()) {
+    case "#r": {
+      const mensagem = texto.replace(/^#r\s+\S+\s*/i, "").trim();
+      if (!alvo || !resto.length || !mensagem) { resposta = "Use: #r 5511999999999 sua resposta"; break; }
+      try {
+        await enviar(alvo, "", mensagem);
+        resposta = `Enviado para ${alvo} ✅`;
+      } catch (e) {
+        resposta = `Não consegui enviar para ${alvo}: ${e.message}`;
+      }
+      break;
+    }
     case "#bot":
       if (!alvo) { resposta = "Use: #bot 5511999999999"; break; }
       await definirModoAtendimento(alvo, "bot", "Reativado pela equipe");
@@ -121,11 +146,14 @@ async function comandoDaEquipe(telefone, texto) {
       break;
     case "#rotinas": {
       const r = await executarRotinas();
-      resposta = `Rotinas executadas. Cobranças: ${r.cobrancas.enviadas}, acompanhamentos: ${r.acompanhamentos.enviadas}, lembretes de agenda: ${r.agenda.enviadas}.`;
+      resposta = `Envios feitos agora. Cobranças: ${r.cobrancas.enviadas}` +
+        (config.ligado("acompanhamentos") ? `, acompanhamentos: ${r.acompanhamentos.enviadas}` : "") +
+        (config.ligado("agenda") ? `, lembretes de agenda: ${r.agenda.enviadas}` : "") + ".";
       break;
     }
     default:
-      resposta = "Comandos: #bot <telefone> (reativar), #humano <telefone> (pausar), #rotinas (rodar envios agora).";
+      resposta = "Comandos: #r <telefone> <mensagem> (responder cliente), #rotinas (fazer os envios de hoje agora)" +
+        (config.ligado("ia") ? ", #bot <telefone> (reativar IA), #humano <telefone> (pausar IA)." : ".");
   }
   await enviarTexto(telefone, resposta);
 }

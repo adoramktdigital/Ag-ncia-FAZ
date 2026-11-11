@@ -113,3 +113,34 @@ export async function garantirAbas(estrutura) {
   }
   return novas;
 }
+
+/** Coloca menus suspensos (lista de opções) nas colunas indicadas: { coluna: ["opção1", "opção2"] }. */
+export async function aplicarListas(aba, listas) {
+  const { data } = await api().spreadsheets.get({ spreadsheetId: config.google.planilhaId });
+  const folha = data.sheets.find((s) => s.properties.title === aba);
+  if (!folha) return;
+  const cabecalho = await lerCabecalho(aba);
+  const requests = [];
+  for (const [coluna, opcoes] of Object.entries(listas)) {
+    const j = cabecalho.indexOf(coluna);
+    if (j === -1) continue;
+    requests.push({
+      setDataValidation: {
+        range: { sheetId: folha.properties.sheetId, startRowIndex: 1, startColumnIndex: j, endColumnIndex: j + 1 },
+        rule: {
+          condition: { type: "ONE_OF_LIST", values: opcoes.map((v) => ({ userEnteredValue: v })) },
+          showCustomUi: true,
+          strict: false,
+        },
+      },
+    });
+  }
+  // Congela a linha do cabeçalho.
+  requests.push({
+    updateSheetProperties: {
+      properties: { sheetId: folha.properties.sheetId, gridProperties: { frozenRowCount: 1 } },
+      fields: "gridProperties.frozenRowCount",
+    },
+  });
+  await api().spreadsheets.batchUpdate({ spreadsheetId: config.google.planilhaId, requestBody: { requests } });
+}
