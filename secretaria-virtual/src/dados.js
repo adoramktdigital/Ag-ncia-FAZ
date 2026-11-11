@@ -62,7 +62,7 @@ export const CONFIG_PADRAO = [
   ["nome_empresa", "Agência FAZ", "Nome da empresa"],
   ["telefone_humano", "", "Seu WhatsApp: recebe os avisos e as respostas dos clientes (ex.: 5511999999999)"],
   ["chave_pix", "", "Chave PIX enviada na cobrança quando o cliente não tem link de pagamento"],
-  ["cobranca_etapas", "-3,0,1,3,7", "Dias em relação ao vencimento em que a cobrança é enviada (negativo = antes)"],
+  ["cobranca_etapas", "-5,0,1,3,7", "Dias em relação ao vencimento em que a cobrança é enviada (negativo = antes)"],
   ["encaminhar_respostas", "sim", "sim = quando um cliente responder, a mensagem é encaminhada para o telefone_humano. Use não se você vê as mensagens direto no app WhatsApp Business"],
   ["nome_secretaria", "Fá", "Nome da secretária virtual (só com a IA ligada)"],
   ["acompanhamento_intervalo_dias", "2", "Dias entre um lembrete de acompanhamento e outro"],

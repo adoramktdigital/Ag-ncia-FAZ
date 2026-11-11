@@ -37,8 +37,8 @@ O sistema vem configurado para começar **só com a cobrança das mensalidades d
 **Como funciona:**
 
 1. O sistema sempre cobra o mês seguinte ao `pago_ate`. Com `pago_ate = 10/2026` e vencimento dia 10, ele cobra novembro, que vence em 10/11/2026.
-2. De segunda a sábado, às 9h30, saem os lembretes na régua da aba Config (padrão: 3 dias antes, no dia, e 1, 3 e 7 dias depois do vencimento).
-3. **Quando o cliente pagar, atualize o `pago_ate`** (ex.: de 10/2026 para 11/2026). Os lembretes de novembro param, e a régua de dezembro começa 3 dias antes do próximo vencimento. Se ele pagar adiantado, coloque o mês até onde pagou.
+2. De segunda a sábado, às 9h30, saem os lembretes na régua da aba Config (padrão: 5 dias antes, no dia, e 1, 3 e 7 dias depois do vencimento).
+3. **Quando o cliente pagar, atualize o `pago_ate`** (ex.: de 10/2026 para 11/2026). Os lembretes de novembro param, e a régua de dezembro começa 5 dias antes do próximo vencimento. Se ele pagar adiantado, coloque o mês até onde pagou.
 4. Se o cliente passar por toda a régua sem pagar, você recebe um aviso para fazer um contato pessoal.
 5. **Quando o cliente responder**, ninguém responde automaticamente. Você responde pessoalmente:
    - Se o número da empresa continua no app **WhatsApp Business** do celular (modo coexistência), as respostas aparecem lá normalmente. Coloque `encaminhar_respostas = não` na aba Config.
@@ -51,7 +51,7 @@ O sistema vem configurado para começar **só com a cobrança das mensalidades d
 | CASA PORTO | Marcelo | 21 98765-4321 | sim | R$ 3.500,00 | 10 | 10/2026 |
 | LARGO | Ana | 21 91111-2222 | não | R$ 1.500,00 | 5 | |
 
-A Casa Porto recebe lembretes de novembro em 07/11, 10/11, 11/11, 13/11 e 17/11, até o `pago_ate` virar 11/2026. A mensagem diz, por exemplo: "Olá, Marcelo! Tudo bem? Passando para lembrar do vencimento dos serviços de marketing da empresa Casa Porto, no valor de R$ 3.500,00, que vence em 10/11/2026. Para facilitar o pagamento, seguem os dados abaixo: Chave PIX: ...". O Largo nunca recebe.
+A Casa Porto recebe lembretes de novembro em 05/11, 10/11, 11/11, 13/11 e 17/11, até o `pago_ate` virar 11/2026. A mensagem diz, por exemplo: "Olá, Marcelo! Tudo bem? Passando para lembrar do vencimento dos serviços de marketing da empresa Casa Porto, no valor de R$ 3.500,00, que vence em 10/11/2026. Para facilitar o pagamento, seguem os dados abaixo: Chave PIX: ...". O Largo nunca recebe.
 
 **O que você precisa para essa primeira etapa:** os passos 1, 2, 3 e 5 abaixo. A chave do Claude (passo 4) não é necessária. Dos templates, crie só estes 4: `cobranca_lembrete`, `cobranca_vencimento_hoje`, `cobranca_em_atraso` e `aviso_equipe`.
 
@@ -178,7 +178,7 @@ Para a Meta enxergar seu computador, use um túnel como `ngrok http 3000` e conf
 - `telefone_humano`: **seu WhatsApp**, que recebe os avisos (ex.: 5511999999999).
 - `chave_pix`: usada quando o cliente não tem link de pagamento.
 - `informacoes_empresa`: **muito importante**. Escreva os serviços, como funciona, preços que podem ser informados, endereço, horário e perguntas frequentes. É daqui que a IA tira as respostas.
-- `cobranca_etapas`: o padrão `-3,0,1,3,7` significa 3 dias antes, no dia, e 1, 3 e 7 dias depois. Depois da última etapa, você recebe um aviso para fazer um contato pessoal.
+- `cobranca_etapas`: o padrão `-5,0,1,3,7` significa 5 dias antes, no dia, e 1, 3 e 7 dias depois. Como não há envio aos domingos, uma etapa que cair num domingo sai na segunda. Depois da última etapa, você recebe um aviso para fazer um contato pessoal.
 - `agenda_*`: dias e horários em que a secretária pode agendar.
 
 ### Quando as mensagens automáticas saem

@@ -5,15 +5,15 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { hoje, somarDias } from "../src/util/datas.js";
 
-// Mensalidade da Ana vence daqui a 3 dias; o pago_ate é o mês anterior a esse vencimento.
-const vence = somarDias(hoje(), 3);
+// Mensalidade da Ana vence daqui a 5 dias; o pago_ate é o mês anterior a esse vencimento.
+const vence = somarDias(hoje(), 5);
 const [anoV, mesV] = vence.split("-").map(Number);
 const mesAnterior = mesV === 1 ? `12/${anoV - 1}` : `${String(mesV - 1).padStart(2, "0")}/${anoV}`;
 
 // ---- planilha em memória ----
 const abas = {
   Clientes: [
-    // vence daqui a 3 dias -> recebe o lembrete D-3
+    // vence daqui a 5 dias -> recebe o lembrete D-5
     { id: "C1", empresa: "CASA PORTO", contato: "Ana Souza", telefone: "(11) 98765-4321", cobranca_automatica: "sim", valor: "R$ 1.500,00",
       dia_vencimento: String(Number(vence.slice(8, 10))), pago_ate: mesAnterior },
     { id: "C2", empresa: "Bruno Lima", telefone: "(11) 91111-2222", cobranca_automatica: "não", valor: "800", dia_vencimento: "1", pago_ate: "01/2020" },
@@ -67,7 +67,7 @@ process.env.ANTHROPIC_API_KEY = "teste";
 const { receberMensagem } = await import("../src/atendimento.js");
 const { executarRotinas } = await import("../src/rotinas/index.js");
 
-test("rotinas enviam cobrança D-3 e pedido de aprovação", async () => {
+test("rotinas enviam cobrança D-5 e pedido de aprovação", async () => {
   enviados.length = 0;
   const r = await executarRotinas(["cobrancas", "acompanhamentos"]);
   assert.equal(r.cobrancas.enviadas, 1); // só a Ana: Bruno está "não" e Carla está em branco
@@ -77,7 +77,7 @@ test("rotinas enviam cobrança D-3 e pedido de aprovação", async () => {
   const nomes = enviados.map((e) => e.template?.name);
   assert.ok(nomes.includes("acompanhamento_aprovacao"));
   assert.ok(nomes.includes("cobranca_lembrete"));
-  assert.equal(abas.Clientes[0].avisos_enviados, "-3");
+  assert.equal(abas.Clientes[0].avisos_enviados, "-5");
   assert.equal(abas.Clientes[0].ultimo_aviso, hoje());
   assert.equal(abas.Clientes[0].aviso_mes, `${String(mesV).padStart(2, "0")}/${anoV}`);
   const cobranca = enviados.find((e) => e.template?.name === "cobranca_lembrete");
